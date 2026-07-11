@@ -1,0 +1,58 @@
+name: obat_keluarga_care_reminder
+description: "Aplikasi Care Circle - reminder obat & koordinasi perawatan keluarga"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Local storage (offline-first)
+  drift: ^2.22.0
+  sqlite3_flutter_libs: ^0.5.28
+  path_provider: ^2.1.5
+  path: ^1.9.0
+
+  # Notifikasi lokal terjadwal
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+
+  # Kamera & galeri (bukti foto - Tahap 3)
+  image_picker: ^1.1.2
+
+  # Grafik tren vitals (Tahap 3)
+  fl_chart: ^0.69.2
+
+  # Navigasi
+  go_router: ^14.6.2
+
+  # Firebase
+  firebase_core: ^3.9.0
+  firebase_auth: ^5.3.4
+  cloud_firestore: ^5.6.0
+  firebase_storage: ^12.4.0
+  firebase_messaging: ^15.1.6
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+  # Code generation
+  build_runner: ^2.4.13
+  drift_dev: ^2.22.0
+  riverpod_generator: ^2.6.3
+  custom_lint: ^0.7.0
+  riverpod_lint: ^2.6.3
+
+flutter:
+  uses-material-design: true
