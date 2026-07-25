@@ -1,8 +1,10 @@
 // Halaman Register: nama, email, password, checkbox persetujuan privasi (UU PDP).
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/user_repository.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -49,28 +51,102 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       _errorMessage = null;
     });
 
+    // Disimpan di luar try supaya bisa dipakai untuk rollback kalau
+    // langkah Firestore gagal setelah akun Auth berhasil dibuat.
+    User? createdAuthUser;
+
+    debugPrint('🔵 [REGISTER] Mulai proses registrasi...');
+
+    // PENTING — race condition fix:
+    // Begitu authRepo.registerWithEmail() berhasil (di bawah), Firebase
+    // Auth langsung emit event lewat authStateChanges. app_router.dart
+    // mendeteksi ini dan bisa langsung redirect ke /dashboard SEBELUM
+    // baris kode setelah `await` sempat lanjut jalan. Kalau widget ini
+    // sudah di-unmount duluan, `ref.read(...)` yang dipanggil SETELAH
+    // await tersebut menjadi tidak valid ("ref used after unmounted").
+    //
+    // Fix: ambil semua provider yang dibutuhkan SEBELUM memanggil
+    // registerWithEmail(), supaya tidak ada ref.read() lagi setelah
+    // titik yang bisa memicu redirect.
+    final authRepo = ref.read(authRepositoryProvider);
+    final userRepo = ref.read(userRepositoryProvider);
+
+    // Juga simpan input form ke variabel lokal sebelum await, supaya
+    // tidak bergantung pada widget (controller) yang mungkin sudah
+    // di-dispose setelah redirect terjadi.
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    final displayName = _nameController.text.trim();
+    final phoneNumber =
+        _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim();
+
     try {
-      final authRepo = ref.read(authRepositoryProvider);
-      final credential = await authRepo.registerWithEmail(
-        _emailController.text.trim(),
-        _passwordController.text,
+      debugPrint('🔵 [REGISTER] Step 1: Memanggil Firebase Auth...');
+      final credential = await authRepo.registerWithEmail(email, password);
+      createdAuthUser = credential.user;
+      debugPrint('✅ [REGISTER] Step 1 sukses. UID: ${createdAuthUser?.uid}');
+
+      final uid = createdAuthUser?.uid;
+      if (uid == null) {
+        throw Exception('Registrasi berhasil tapi UID tidak ditemukan.');
+      }
+
+      // Simpan dokumen users/{uid} di Firestore. userRepo sudah diambil
+      // SEBELUM await di atas, jadi tidak bergantung lagi pada `ref`
+      // widget ini masih hidup atau tidak.
+      debugPrint('🔵 [REGISTER] Step 2: Menulis dokumen ke Firestore...');
+      await userRepo.createUserDocument(
+        uid: uid,
+        displayName: displayName,
+        email: email,
+        phoneNumber: phoneNumber,
       );
 
-      // TODO: setelah akun Firebase Auth berhasil dibuat, simpan juga
-      // dokumen users/{uid} di Firestore (nama, email, phone) sesuai
-      // skema. Ini butuh user_repository.dart yang belum dibuat —
-      // untuk sekarang kita catat sebagai langkah selanjutnya.
-      debugPrint('Akun berhasil dibuat: ${credential.user?.uid}');
+      debugPrint('✅ [REGISTER] Step 2 sukses. Dokumen users/$uid tersimpan.');
 
       // Setelah register, redirect logic di app_router.dart otomatis
       // akan mendeteksi user sudah login dan mengarahkan ke langkah
       // berikutnya (nanti: onboarding, karena belum ada circle).
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Gagal membuat akun. Periksa kembali data Anda.';
-      });
+    } on FirebaseAuthException catch (e) {
+      debugPrint('🔴 [REGISTER] FirebaseAuthException di Step 1: '
+          '${e.code} — ${e.message}');
+      if (mounted) {
+        setState(() {
+          _errorMessage = _mapAuthError(e);
+        });
+      }
+    } catch (e, stackTrace) {
+      // Akun Auth sudah terlanjur dibuat tapi dokumen Firestore gagal
+      // disimpan (misal: koneksi putus, rules menolak, dsb). User jadi
+      // bisa login tapi tanpa profil Firestore. Penanganan permanen
+      // (retry otomatis / auto-create saat login) akan dikerjakan
+      // bersamaan poin 6 (redirect logic circle check).
+      debugPrint('🔴 [REGISTER] Gagal di Step 2 (Firestore). '
+          'uid=${createdAuthUser?.uid}');
+      debugPrint('🔴 [REGISTER] Error: $e');
+      debugPrint('🔴 [REGISTER] StackTrace: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Akun dibuat, tapi gagal menyimpan profil. Coba login ulang.';
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
+      debugPrint('🔵 [REGISTER] Selesai (finally).');
+    }
+  }
+
+  String _mapAuthError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'Email sudah terdaftar. Silakan login.';
+      case 'weak-password':
+        return 'Password terlalu lemah (minimal 6 karakter).';
+      case 'invalid-email':
+        return 'Format email tidak valid.';
+      default:
+        return 'Gagal membuat akun. Periksa kembali data Anda.';
     }
   }
 
