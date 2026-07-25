@@ -1,4 +1,3 @@
-// Model PatientProfile: patientId, circleId, linkedUserId, careGivers (map), isActive, dst.
 // Model domain untuk dokumen `patientProfiles/{patientId}` di Firestore.
 // Lihat Skema_Firestore_CareCircle.md bagian 3 untuk skema & prinsip
 // desain lengkap (kenapa "pasien" adalah entitas terpisah, bukan role

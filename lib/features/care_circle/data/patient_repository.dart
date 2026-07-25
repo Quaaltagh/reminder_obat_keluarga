@@ -1,5 +1,3 @@
-// CRUD patientProfiles (Firestore, top-level collection).
-// create/delete: admin only. update: admin atau editor caregiver.
 // Repository untuk collection `patientProfiles/{patientId}`.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
