@@ -1,19 +1,30 @@
 // Konfigurasi go_router.
 // TODO: Redirect logic: splash -> cek auth -> cek circle membership -> dashboard.
 // Lihat diagram alur navigasi yang sudah didiskusikan untuk referensi lengkap.
+// Konfigurasi go_router.
+// Redirect logic: splash -> cek device_mode -> cek auth -> cek circle
+// membership -> dashboard atau onboarding.
+// Konfigurasi go_router.
+// Redirect logic: splash -> cek device_mode -> cek auth -> cek circle
+// membership -> dashboard atau onboarding.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../features/auth/data/user_repository.dart';
+import '../../features/auth/domain/app_user.dart';
 import '../../features/auth/presentation/providers/auth_provider.dart';
 import '../../features/auth/presentation/screens/splash_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/dashboard/presentation/screens/dashboard_screen.dart';
+import '../../features/onboarding/presentation/screens/onboarding_choice_screen.dart';
+import '../../features/onboarding/presentation/screens/create_circle_screen.dart';
+import '../../features/onboarding/presentation/screens/join_circle_screen.dart';
+import '../../features/onboarding/presentation/screens/waiting_approval_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -48,6 +59,16 @@ GoRouter appRouter(Ref ref) {
       final isSplash = state.matchedLocation == '/splash';
       final isLoginOrRegister = state.matchedLocation == '/login' ||
           state.matchedLocation == '/register';
+      // Semua halaman onboarding dikecualikan dari paksaan redirect
+      // "circleIds kosong -> /onboarding", supaya user yang SEDANG di
+      // tengah proses (isi form create-circle, submit kode invite,
+      // atau menunggu approval) tidak terus dilempar balik ke halaman
+      // pilihan awal. Tanpa pengecualian ini, begitu user mendarat di
+      // /onboarding/create-circle, redirect akan langsung mendeteksi
+      // circleIds masih kosong dan memaksa balik ke /onboarding lagi
+      // — infinite loop.
+      final isOnboardingRoute =
+          state.matchedLocation.startsWith('/onboarding');
 
       // 1. Cek dulu apakah device ini di-setup sebagai "HP Pasien".
       //    Ini flag LOKAL (SharedPreferences), independen dari status
@@ -98,10 +119,56 @@ GoRouter appRouter(Ref ref) {
         return '/login';
       }
 
-      // 3. Sudah login. TODO: cek circle membership di sini nanti
-      //    (perlu care_circle_provider). Untuk sekarang, siapa saja
-      //    yang login langsung diarahkan ke dashboard.
-      if (isSplash || isLoginOrRegister) {
+      // 3. Sudah login -> cek circle membership.
+      //    Dibaca lewat watchAppUserProvider (stream ke Firestore
+      //    users/{uid}), di-watch (bukan read/await sekali) supaya
+      //    redirect otomatis re-evaluate begitu circleIds berubah
+      //    (misal: user baru selesai submit create-circle, provider
+      //    ini akan emit ulang dan redirect jalan lagi tanpa perlu
+      //    trigger manual dari screen).
+      debugPrint('🔵 Mulai cek circle membership...');
+      final appUserAsync = ref.watch(watchAppUserProvider(user.uid));
+
+      // Kalau data users/{uid} belum siap (masih loading / error),
+      // jangan paksa redirect dulu — biarkan halaman saat ini tetap
+      // tampil supaya tidak flicker atau redirect prematur berdasar
+      // data yang belum lengkap.
+      if (appUserAsync.isLoading) {
+        debugPrint('🔵 appUser masih loading, tunda redirect');
+        return null;
+      }
+
+      // .value bisa throw kalau state error atau belum ada data;
+      // ditangani manual dengan try-catch karena Riverpod 3.1.0 di
+      // project ini tidak menyediakan .valueOrNull pada AsyncValue
+      // yang di-generate (lihat catatan institusional: "Riverpod
+      // 3.1.0 API: No .valueOrNull").
+      AppUser? appUser;
+      try {
+        appUser = appUserAsync.value;
+      } catch (_) {
+        appUser = null;
+      }
+      final hasCircle = appUser != null && appUser.circleIds.isNotEmpty;
+      debugPrint('🔵 hasCircle = $hasCircle '
+          '(circleIds: ${appUser?.circleIds})');
+
+      if (!hasCircle) {
+        // Belum ikut circle manapun. Kecualikan halaman onboarding
+        // sendiri supaya tidak infinite redirect (lihat komentar
+        // isOnboardingRoute di atas).
+        if (isOnboardingRoute) {
+          debugPrint('🔵 Di halaman onboarding, tidak di-redirect');
+          return null;
+        }
+        debugPrint('🔵 Redirect ke /onboarding (belum punya circle)');
+        return '/onboarding';
+      }
+
+      // Sudah punya circle. Kalau masih di splash/login/register ATAU
+      // nyasar ke halaman onboarding (misal buka link lama), arahkan
+      // ke dashboard.
+      if (isSplash || isLoginOrRegister || isOnboardingRoute) {
         debugPrint('🔵 Redirect ke /dashboard');
         return '/dashboard';
       }
@@ -129,6 +196,29 @@ GoRouter appRouter(Ref ref) {
         path: '/dashboard',
         name: 'dashboard',
         builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding',
+        name: 'onboarding-choice',
+        builder: (context, state) => const OnboardingChoiceScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding/create-circle',
+        name: 'create-circle',
+        builder: (context, state) => const CreateCircleScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding/join-circle',
+        name: 'join-circle',
+        builder: (context, state) => const JoinCircleScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding/waiting-approval',
+        name: 'waiting-approval',
+        builder: (context, state) {
+          final circleId = state.uri.queryParameters['circleId'] ?? '';
+          return WaitingApprovalScreen(circleId: circleId);
+        },
       ),
     ],
   );
