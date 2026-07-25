@@ -1,27 +1,16 @@
-// Splash screen: init Firebase, cek auth state, cek circle membership.
-// Lihat penjelasan detail 'apa yang dicek saat splash screen' di diskusi sebelumnya.
-
 import 'package:flutter/material.dart';
+import '../../../../shared/widgets/obat_keluarga_logo.dart';
 
-/// Splash screen — tampil sebentar saat app pertama dibuka.
-///
-/// PENTING: Layar ini murni tampilan (visual only). Logika "mau redirect
-/// ke mana setelah ini" TIDAK ditaruh di sini, melainkan di
-/// core/router/app_router.dart lewat redirect logic go_router yang
-/// mendengarkan authStateChangesProvider, isPatientModeDeviceProvider, dst.
-///
-/// Kenapa dipisah begini? Supaya splash screen tetap simpel (cuma render
-/// UI) dan semua keputusan navigasi terpusat di satu tempat (router),
-/// bukan tersebar di banyak screen.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F6FB), // biru sangat muda, sesuai desain
+      backgroundColor: const Color(0xFFF5F7FB),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -29,35 +18,17 @@ class SplashScreen extends StatelessWidget {
             children: [
               const Spacer(flex: 3),
 
-              // Logo card
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.favorite,
-                  size: 56,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
+              // Logo Card resmi
+              const ObatKeluargaLogo(size: 130),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
 
               Text(
                 'Obat Keluarga',
-                style: theme.textTheme.headlineSmall?.copyWith(
+                style: theme.textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
+                  color: const Color(0xFF0F4C81),
+                  letterSpacing: -0.5,
                 ),
               ),
               const SizedBox(height: 8),
@@ -65,17 +36,23 @@ class SplashScreen extends StatelessWidget {
                 'Your family\'s trusted companion\nfor health & medication.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey.shade600,
+                  color: const Color(0xFF64748B),
+                  height: 1.4,
                 ),
               ),
 
               const Spacer(flex: 4),
 
-              // Progress indicator
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: const LinearProgressIndicator(
-                  minHeight: 4,
+              // Progress Bar biru
+              SizedBox(
+                width: 200,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    minHeight: 5,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -87,15 +64,16 @@ class SplashScreen extends StatelessWidget {
                     height: 14,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: theme.colorScheme.primary,
+                      color: primaryColor,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     'INITIALIZING',
                     style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      letterSpacing: 1.2,
+                      color: const Color(0xFF3B82F6),
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.5,
                     ),
                   ),
                 ],
