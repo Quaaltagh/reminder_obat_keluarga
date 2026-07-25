@@ -127,8 +127,6 @@ class _CreateCircleScreenState extends ConsumerState<CreateCircleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FB),
       appBar: AppBar(
