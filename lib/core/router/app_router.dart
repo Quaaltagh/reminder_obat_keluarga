@@ -57,13 +57,9 @@ GoRouter appRouter(Ref ref) {
       final isOnboardingRoute =
           state.matchedLocation.startsWith('/onboarding');
 
-      // 1. Cek HP Pasien (flag lokal SharedPreferences)
-      final isPatientDevice =
-          await ref.read(isPatientModeDeviceProvider.future);
-      debugPrint('🔵 isPatientDevice = $isPatientDevice');
-
-      if (isPatientDevice) {
-        if (isSplash) return '/dashboard';
+      // 1. Splash Screen selalu tampil pertama kali tanpa di-override oleh router
+      if (isSplash) {
+        debugPrint('🔵 Berada di Splash Screen, biarkan timer Splash berjalan');
         return null;
       }
 
@@ -93,9 +89,15 @@ GoRouter appRouter(Ref ref) {
         return '/login';
       }
 
+      final isRegisterRoute = state.matchedLocation == '/register';
+      if (isRegisterRoute) {
+        debugPrint('🔵 Di halaman register, biarkan alur register selesai');
+        return null;
+      }
+
       // 3. Sudah login -> cek circle membership di Firestore
       debugPrint('🔵 Mulai cek circle membership...');
-      final appUserAsync = ref.read(watchAppUserProvider(user.uid));
+      final appUserAsync = refreshListenable.currentAppUser;
 
       if (appUserAsync.isLoading) {
         debugPrint('🔵 appUser masih loading, tunda redirect');
@@ -138,7 +140,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/login',
         name: 'login',
-        builder: (context, state) => const LoginScreen(),
+        builder: (context, state) {
+          final email = state.uri.queryParameters['email'];
+          final password = state.uri.queryParameters['password'];
+          return LoginScreen(
+            initialEmail: email,
+            initialPassword: password,
+          );
+        },
       ),
       GoRoute(
         path: '/register',
@@ -196,6 +205,10 @@ class AppRouterRefreshListenable extends ChangeNotifier {
   ProviderSubscription<AsyncValue<bool>>? _patientModeSub;
   ProviderSubscription<AsyncValue<AppUser?>>? _appUserSub;
 
+  AsyncValue<AppUser?> _currentAppUser = const AsyncLoading();
+
+  AsyncValue<AppUser?> get currentAppUser => _currentAppUser;
+
   AppRouterRefreshListenable(this._ref) {
     // Listen status Auth
     _authSub = _ref.listen<AsyncValue<User?>>(
@@ -221,6 +234,7 @@ class AppRouterRefreshListenable extends ChangeNotifier {
   void _updateAppUserSubscription(String? uid) {
     _appUserSub?.close();
     _appUserSub = null;
+    _currentAppUser = const AsyncLoading();
 
     if (uid != null) {
       _appUserSub = _ref.listen<AsyncValue<AppUser?>>(
@@ -228,6 +242,7 @@ class AppRouterRefreshListenable extends ChangeNotifier {
         (previous, next) {
           debugPrint('🔵 AppRouterRefreshListenable: watchAppUser state changed '
               '(isLoading: ${next.isLoading}, value: ${next.value?.circleIds})');
+          _currentAppUser = next;
           notifyListeners();
         },
         fireImmediately: true,

@@ -24,6 +24,9 @@ class OnboardingChoiceScreen extends ConsumerWidget {
             onPressed: () async {
               final authRepo = ref.read(authRepositoryProvider);
               await authRepo.signOut();
+              if (context.mounted) {
+                context.go('/login');
+              }
             },
           ),
         ],

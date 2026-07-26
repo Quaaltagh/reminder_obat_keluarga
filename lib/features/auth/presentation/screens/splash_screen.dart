@@ -1,8 +1,46 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../shared/widgets/obat_keluarga_logo.dart';
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _clearTestDeviceModeAndNavigate();
+  }
+
+  Future<void> _clearTestDeviceModeAndNavigate() async {
+    // Hapus flag test mode pasien dari SharedPreferences agar tidak pernah nyangkut
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('device_mode');
+      await prefs.remove('device_patient_id');
+    } catch (_) {}
+
+    // Tampilkan Splash Screen selama 2 detik lalu lanjut ke Login Page
+    _timer = Timer(const Duration(milliseconds: 2200), () {
+      if (mounted) {
+        context.go('/login');
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
