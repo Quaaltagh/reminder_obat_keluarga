@@ -3,21 +3,58 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../shared/widgets/obat_keluarga_logo.dart';
+import '../../data/user_repository.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  final String? initialEmail;
+  final String? initialPassword;
+
+  const LoginScreen({
+    super.key,
+    this.initialEmail,
+    this.initialPassword,
+  });
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  late final TextEditingController _emailController;
+  late final TextEditingController _passwordController;
+
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    final credentials = ref.read(lastRegisteredCredentialsProvider);
+    final initialEmail = credentials?.email ?? widget.initialEmail ?? '';
+    final initialPassword = credentials?.password ?? widget.initialPassword ?? '';
+
+    _emailController = TextEditingController(text: initialEmail);
+    _passwordController = TextEditingController(text: initialPassword);
+
+    if (credentials != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(lastRegisteredCredentialsProvider.notifier).clear();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant LoginScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialEmail != null && widget.initialEmail != oldWidget.initialEmail) {
+      _emailController.text = widget.initialEmail!;
+    }
+    if (widget.initialPassword != null && widget.initialPassword != oldWidget.initialPassword) {
+      _passwordController.text = widget.initialPassword!;
+    }
+  }
 
   @override
   void dispose() {
@@ -44,11 +81,115 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     try {
       final authRepo = ref.read(authRepositoryProvider);
-      await authRepo.signInWithEmail(email, password);
+      final credential = await authRepo.signInWithEmail(email, password);
+      final uid = credential.user?.uid;
+
+      if (uid != null) {
+        final userRepo = ref.read(userRepositoryProvider);
+        final appUser = await userRepo.getUser(uid);
+
+        if (mounted) {
+          if (appUser != null && appUser.circleIds.isNotEmpty) {
+            context.go('/dashboard');
+          } else {
+            context.go('/onboarding');
+          }
+        }
+      }
     } catch (e) {
       setState(() {
         _errorMessage = 'Email atau password salah. Silakan coba lagi.';
       });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleGoogleLogin() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authRepo = ref.read(authRepositoryProvider);
+      final credential = await authRepo.signInWithGoogle();
+      final uid = credential?.user?.uid;
+
+      if (uid != null) {
+        final userRepo = ref.read(userRepositoryProvider);
+        var appUser = await userRepo.getUser(uid);
+
+        if (appUser == null) {
+          final user = credential!.user!;
+          await userRepo.createUserDocument(
+            uid: uid,
+            displayName: user.displayName ?? 'Pengguna Google',
+            email: user.email ?? '',
+            phoneNumber: user.phoneNumber ?? '',
+          );
+          appUser = await userRepo.getUser(uid);
+        }
+
+        if (mounted) {
+          if (appUser != null && appUser.circleIds.isNotEmpty) {
+            context.go('/dashboard');
+          } else {
+            context.go('/onboarding');
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Gagal login Google. Pastikan SHA-1 & OAuth telah dikonfigurasi di Firebase Console.';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleFacebookLogin() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authRepo = ref.read(authRepositoryProvider);
+      final credential = await authRepo.signInWithFacebook();
+      final uid = credential?.user?.uid;
+
+      if (uid != null) {
+        final userRepo = ref.read(userRepositoryProvider);
+        var appUser = await userRepo.getUser(uid);
+
+        if (appUser == null) {
+          final user = credential!.user!;
+          await userRepo.createUserDocument(
+            uid: uid,
+            displayName: user.displayName ?? 'Pengguna Facebook',
+            email: user.email ?? '',
+            phoneNumber: user.phoneNumber ?? '',
+          );
+          appUser = await userRepo.getUser(uid);
+        }
+
+        if (mounted) {
+          if (appUser != null && appUser.circleIds.isNotEmpty) {
+            context.go('/dashboard');
+          } else {
+            context.go('/onboarding');
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Gagal login Facebook. Pastikan Facebook App ID telah dikonfigurasi.';
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -283,7 +424,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: null,
+                            onPressed: _isLoading ? null : _handleGoogleLogin,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(color: Colors.grey.shade300),
@@ -301,7 +442,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: null,
+                            onPressed: _isLoading ? null : _handleFacebookLogin,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(color: Colors.grey.shade300),

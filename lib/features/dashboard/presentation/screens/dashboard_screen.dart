@@ -3,15 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:go_router/go_router.dart';
+
 import '../../../auth/presentation/providers/auth_provider.dart';
 
 /// Dashboard utama — TAHAP INI baru versi dasar untuk memastikan alur
 /// splash -> login -> dashboard berfungsi end-to-end.
-///
-/// TODO (tahap berikutnya): ganti body ini dengan dashboard gabungan
-/// multi-pasien (card per patientProfile aktif) sesuai desain yang
-/// sudah dirancang — butuh patient_list_provider.dart dan
-/// patient_summary_card.dart terlebih dahulu.
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
@@ -29,9 +26,9 @@ class DashboardScreen extends ConsumerWidget {
             onPressed: () async {
               final authRepo = ref.read(authRepositoryProvider);
               await authRepo.signOut();
-              // Tidak perlu navigasi manual — redirect logic di
-              // app_router.dart otomatis mendeteksi authState berubah
-              // jadi null dan mengarahkan balik ke /login.
+              if (context.mounted) {
+                context.go('/login');
+              }
             },
           ),
         ],

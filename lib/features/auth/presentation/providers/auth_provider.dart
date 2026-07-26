@@ -6,6 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+
 part 'auth_provider.g.dart';
 
 /// Stream status login Firebase Auth. Emit setiap kali user login/logout.
@@ -23,9 +26,7 @@ User? currentUser(Ref ref) {
   return FirebaseAuth.instance.currentUser;
 }
 
-/// Repository kecil untuk aksi auth: login, register, logout.
-/// Dipisah dari provider di atas supaya UI (login_screen.dart dst)
-/// tidak langsung bicara ke FirebaseAuth.instance secara langsung.
+/// Repository kecil untuk aksi auth: login, register, logout, social login.
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -40,14 +41,67 @@ class AuthRepository {
     );
   }
 
-  Future<void> signOut() {
-    return _auth.signOut();
+  Future<UserCredential?> signInWithGoogle() async {
+    final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+    if (googleUser == null) return null;
+
+    final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    final OAuthCredential credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    return await _auth.signInWithCredential(credential);
+  }
+
+  Future<UserCredential?> signInWithFacebook() async {
+    final LoginResult result = await FacebookAuth.instance.login();
+    if (result.status == LoginStatus.success) {
+      final AccessToken accessToken = result.accessToken!;
+      final OAuthCredential credential = FacebookAuthProvider.credential(accessToken.tokenString);
+      return await _auth.signInWithCredential(credential);
+    }
+    return null;
+  }
+
+  Future<void> signOut() async {
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
+    try {
+      await FacebookAuth.instance.logOut();
+    } catch (_) {}
+    return await _auth.signOut();
   }
 }
 
 @riverpod
 AuthRepository authRepository(Ref ref) {
   return AuthRepository();
+}
+
+class RegisteredCredentials {
+  final String email;
+  final String password;
+
+  const RegisteredCredentials({
+    required this.email,
+    required this.password,
+  });
+}
+
+@riverpod
+class LastRegisteredCredentials extends _$LastRegisteredCredentials {
+  @override
+  RegisteredCredentials? build() => null;
+
+  void setCredentials(String email, String password) {
+    state = RegisteredCredentials(email: email, password: password);
+  }
+
+  void clear() {
+    state = null;
+  }
 }
 
 // ============================================================

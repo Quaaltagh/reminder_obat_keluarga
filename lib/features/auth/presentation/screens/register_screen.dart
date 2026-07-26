@@ -83,6 +83,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         email: email,
         phoneNumber: phoneNumber,
       );
+
+      // Simpan data registrasi ke provider sementara agar otomatis terisi di login
+      ref.read(lastRegisteredCredentialsProvider.notifier).setCredentials(email, password);
+
+      // Sign out agar tidak langsung masuk otomatis
+      await authRepo.signOut();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Akun berhasil dibuat! Silakan klik Login.'),
+            backgroundColor: Color(0xFF0F4C81),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        context.go('/login');
+      }
     } on FirebaseAuthException catch (e) {
       if (mounted) {
         setState(() {
