@@ -96,6 +96,16 @@ class PatientRepository {
     }, SetOptions(merge: true));
   }
 
+  /// Menghubungkan akun HP user ke PatientProfile yang sudah ada
+  Future<void> linkUserToPatientProfile({
+    required String patientId,
+    required String userId,
+  }) async {
+    await _patientsCollection.doc(patientId).set({
+      'linkedUserId': userId,
+    }, SetOptions(merge: true));
+  }
+
   /// Mencabut akses caregiver (menghapus entry-nya dari careGivers map).
   /// Dipakai kalau nanti Admin ingin "downgrade" caregiver jadi tanpa
   /// akses tanpa menghapusnya dari circle sepenuhnya. FieldValue.delete()
@@ -115,3 +125,9 @@ class PatientRepository {
 PatientRepository patientRepository(Ref ref) {
   return PatientRepository();
 }
+
+final watchActivePatientsInCircleProvider =
+    StreamProvider.family<List<PatientProfile>, String>((ref, circleId) {
+  final repo = ref.watch(patientRepositoryProvider);
+  return repo.watchActivePatientsInCircle(circleId);
+});

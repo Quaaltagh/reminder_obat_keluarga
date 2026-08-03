@@ -20,6 +20,16 @@ import '../domain/join_request.dart';
 
 part 'care_circle_repository.g.dart';
 
+class CircleRoleSearchResult {
+  final CareCircle circle;
+  final String? targetRole;
+
+  const CircleRoleSearchResult({
+    required this.circle,
+    this.targetRole,
+  });
+}
+
 class CareCircleRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -102,30 +112,57 @@ class CareCircleRepository {
   // JOIN VIA KODE (alur Member: "Saya Punya Kode Undangan")
   // ============================================================
 
-  /// Mencari circle yang inviteCode-nya cocok. Karena inviteCode
-  /// disimpan sebagai field biasa (bukan document ID), pencarian
-  /// dilakukan lewat query `where`.
-  ///
-  /// Mengembalikan null kalau tidak ada circle dengan kode tersebut.
-  Future<CareCircle?> findCircleByInviteCode(String inviteCode) async {
-    final query = await _circlesCollection
-        .where('inviteCode', isEqualTo: inviteCode)
+  /// Mencari circle yang inviteCode-nya cocok, sekaligus mem-parse role
+  /// target jika kode memiliki prefix P-, I-, atau V-.
+  Future<CircleRoleSearchResult?> findCircleAndRoleByInviteCode(String inputCode) async {
+    final cleanInput = inputCode.trim().replaceAll(' ', '').replaceAll('-', '').toUpperCase();
+    String? targetRole;
+    String cleanBaseCode = cleanInput;
+
+    if (cleanInput.startsWith('P')) {
+      targetRole = 'patient';
+      cleanBaseCode = cleanInput.substring(1);
+    } else if (cleanInput.startsWith('I')) {
+      targetRole = 'editor';
+      cleanBaseCode = cleanInput.substring(1);
+    } else if (cleanInput.startsWith('V')) {
+      targetRole = 'viewer';
+      cleanBaseCode = cleanInput.substring(1);
+    }
+
+    var query = await _circlesCollection
+        .where('inviteCode', isEqualTo: cleanBaseCode)
         .limit(1)
         .get();
 
+    if (query.docs.isEmpty) {
+      query = await _circlesCollection
+          .where('inviteCode', isEqualTo: cleanInput)
+          .limit(1)
+          .get();
+    }
+
     if (query.docs.isEmpty) return null;
     final doc = query.docs.first;
-    return CareCircle.fromMap(doc.id, doc.data());
+    return CircleRoleSearchResult(
+      circle: CareCircle.fromMap(doc.id, doc.data()),
+      targetRole: targetRole,
+    );
   }
 
-  /// Membuat join request berstatus "pending" — BUKAN langsung menulis
-  /// ke members/{userId}. Ini implementasi keputusan "join butuh
-  /// approval Admin dulu", bukan auto-join.
+  /// Backward compatibility wrapper
+  Future<CareCircle?> findCircleByInviteCode(String inviteCode) async {
+    final result = await findCircleAndRoleByInviteCode(inviteCode);
+    return result?.circle;
+  }
+
+  /// Membuat join request berstatus "pending" beserta targetRole jika ada.
   Future<void> submitJoinRequest({
     required String circleId,
     required String userId,
     required String displayName,
     required String email,
+    String? targetRole,
   }) async {
     final request = JoinRequest(
       userId: userId,
@@ -133,6 +170,7 @@ class CareCircleRepository {
       email: email,
       requestedAt: DateTime.now(),
       status: JoinRequestStatus.pending,
+      targetRole: targetRole,
     );
 
     await _circlesCollection
@@ -206,6 +244,18 @@ class CareCircleRepository {
         .collection('joinRequests')
         .doc(userId)
         .update({'status': JoinRequestStatus.rejected.value});
+  }
+
+  /// User membatalkan join request
+  Future<void> cancelJoinRequest({
+    required String circleId,
+    required String userId,
+  }) async {
+    await _circlesCollection
+        .doc(circleId)
+        .collection('joinRequests')
+        .doc(userId)
+        .delete();
   }
 
   // ============================================================

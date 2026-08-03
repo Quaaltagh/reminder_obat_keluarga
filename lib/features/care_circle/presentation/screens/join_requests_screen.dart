@@ -2,8 +2,6 @@
 // masih pending, dengan aksi Approve (pilih jadi Pasien baru ATAU
 // Caregiver dengan role Editor/Viewer) atau Reject.
 //
-// Dibuka dari ikon lonceng di FamilyListScreen.
-//
 // Lokasi: lib/features/care_circle/presentation/screens/join_requests_screen.dart
 
 import 'package:flutter/material.dart';
@@ -26,9 +24,27 @@ class JoinRequestsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.watch(careCircleRepositoryProvider);
+    const primaryBlue = Color(0xFF0F4C81);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Permintaan Bergabung')),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF8FAFC),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Permintaan Bergabung',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: StreamBuilder<List<JoinRequest>>(
         stream: repo.watchPendingJoinRequests(circleId),
         builder: (context, snapshot) {
@@ -36,7 +52,34 @@ class JoinRequestsScreen extends ConsumerWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Gagal memuat: ${snapshot.error}'));
+            final errorStr = snapshot.error.toString();
+            final isPermissionDenied = errorStr.contains('permission-denied');
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.shield_outlined, size: 48, color: Colors.amber),
+                    const SizedBox(height: 12),
+                    Text(
+                      isPermissionDenied
+                          ? 'Izin Akses Firestore Ditolak'
+                          : 'Gagal Memuat Permintaan',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isPermissionDenied
+                          ? 'Pastikan aturan (Security Rules) sub-collection "joinRequests" di Firebase Console sudah diizinkan (allow read, write: if request.auth != null).'
+                          : 'Error: $errorStr',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            );
           }
 
           final requests = snapshot.data ?? [];
@@ -44,26 +87,51 @@ class JoinRequestsScreen extends ConsumerWidget {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Tidak ada permintaan bergabung yang menunggu saat ini.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEFF6FF),
+                        shape: BoxShape.circle,
                       ),
+                      child: const Icon(
+                        Icons.mark_email_read_outlined,
+                        size: 48,
+                        color: primaryBlue,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Belum Ada Permintaan',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Tidak ada permintaan bergabung yang menunggu persetujuan saat ini.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.4),
+                    ),
+                  ],
                 ),
               ),
             );
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             itemCount: requests.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
               final request = requests[index];
               return _JoinRequestTile(
                 request: request,
-                onApprove: () => _showApproveDialog(context, ref, request),
+                onApprove: () => _handleApprove(context, ref, request),
                 onReject: () => _handleReject(context, ref, request),
               );
             },
@@ -71,6 +139,80 @@ class JoinRequestsScreen extends ConsumerWidget {
         },
       ),
     );
+  }
+
+  Future<void> _handleApprove(
+    BuildContext context,
+    WidgetRef ref,
+    JoinRequest request,
+  ) async {
+    final targetRole = request.targetRole;
+    String roleName = 'Anggota Input';
+    if (targetRole == 'patient') roleName = 'Pasien';
+    if (targetRole == 'viewer') roleName = 'View Only';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Setujui Permintaan?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text('Setujui ${request.displayName} untuk bergabung sebagai $roleName?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F4C81),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Setujui'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final actions = ref.read(circleManagementActionsProvider.notifier);
+
+      if (targetRole == 'patient') {
+        await actions.approveAsNewPatient(
+          circleId: circleId,
+          userId: request.userId,
+          adminUserId: adminUserId,
+          patientName: request.displayName,
+        );
+      } else if (targetRole == 'viewer') {
+        await actions.approveAsCaregiver(
+          circleId: circleId,
+          userId: request.userId,
+          adminUserId: adminUserId,
+          role: CaregiverRole.viewer,
+        );
+      } else {
+        // default or 'editor'
+        await actions.approveAsCaregiver(
+          circleId: circleId,
+          userId: request.userId,
+          adminUserId: adminUserId,
+          role: CaregiverRole.editor,
+        );
+      }
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${request.displayName} berhasil disetujui sebagai $roleName.')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal menyetujui: $e')),
+      );
+    }
   }
 
   Future<void> _handleReject(
@@ -81,15 +223,20 @@ class JoinRequestsScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Tolak Permintaan?'),
-        content: Text('${request.displayName} tidak akan bisa bergabung ke circle ini.'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Tolak Permintaan?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text('${request.displayName} tidak akan bisa bergabung ke Care Circle ini.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Batal'),
           ),
-          FilledButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Tolak'),
           ),
         ],
@@ -104,7 +251,7 @@ class JoinRequestsScreen extends ConsumerWidget {
           .reject(circleId: circleId, userId: request.userId);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${request.displayName} ditolak')),
+        SnackBar(content: Text('${request.displayName} telah ditolak.')),
       );
     } catch (e) {
       if (!context.mounted) return;
@@ -112,22 +259,6 @@ class JoinRequestsScreen extends ConsumerWidget {
         SnackBar(content: Text('Gagal menolak: $e')),
       );
     }
-  }
-
-  Future<void> _showApproveDialog(
-    BuildContext context,
-    WidgetRef ref,
-    JoinRequest request,
-  ) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => _ApproveBottomSheet(
-        circleId: circleId,
-        adminUserId: adminUserId,
-        request: request,
-      ),
-    );
   }
 }
 
@@ -144,16 +275,21 @@ class _JoinRequestTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    const primaryBlue = Color(0xFF0F4C81);
+    final initial = request.displayName.isNotEmpty ? request.displayName[0].toUpperCase() : 'U';
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: const Border(
+          left: BorderSide(color: primaryBlue, width: 4),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 6,
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
@@ -161,32 +297,92 @@ class _JoinRequestTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            request.displayName,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            request.email,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
+          Row(
+            children: [
+              // Avatar
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: const Color(0xFFDBEAFE),
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    color: primaryBlue,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
+              ),
+              const SizedBox(width: 12),
+
+              // Name & Email
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.displayName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      request.email,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Badge Role Target
+              if (request.targetRole != null)
+                _TargetRoleBadge(targetRole: request.targetRole!),
+            ],
           ),
-          const SizedBox(height: 14),
+
+          const SizedBox(height: 16),
+
+          // Action Buttons: [Tolak] [Setujui]
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
-                  onPressed: onReject,
-                  style: OutlinedButton.styleFrom(foregroundColor: colorScheme.error),
-                  child: const Text('Tolak'),
+                child: SizedBox(
+                  height: 42,
+                  child: OutlinedButton(
+                    onPressed: onReject,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFDC2626),
+                      side: const BorderSide(color: Color(0xFFFECACA)),
+                      backgroundColor: const Color(0xFFFEF2F2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Tolak', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: FilledButton(
-                  onPressed: onApprove,
-                  child: const Text('Setujui'),
+                child: SizedBox(
+                  height: 42,
+                  child: ElevatedButton(
+                    onPressed: onApprove,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Setujui', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                 ),
               ),
             ],
@@ -197,197 +393,43 @@ class _JoinRequestTile extends StatelessWidget {
   }
 }
 
-/// Bottom sheet muncul saat Admin menekan "Setujui": pilih apakah orang
-/// ini jadi Pasien baru atau Caregiver, lalu isi detail sesuai pilihan.
-class _ApproveBottomSheet extends ConsumerStatefulWidget {
-  const _ApproveBottomSheet({
-    required this.circleId,
-    required this.adminUserId,
-    required this.request,
-  });
+class _TargetRoleBadge extends StatelessWidget {
+  const _TargetRoleBadge({required this.targetRole});
 
-  final String circleId;
-  final String adminUserId;
-  final JoinRequest request;
-
-  @override
-  ConsumerState<_ApproveBottomSheet> createState() => _ApproveBottomSheetState();
-}
-
-enum _ApproveAs { newPatient, caregiver }
-
-class _ApproveBottomSheetState extends ConsumerState<_ApproveBottomSheet> {
-  _ApproveAs _approveAs = _ApproveAs.caregiver;
-  CaregiverRole _selectedRole = CaregiverRole.viewer;
-
-  final _patientNameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _notesController = TextEditingController();
-
-  bool _isSubmitting = false;
-
-  @override
-  void dispose() {
-    _patientNameController.dispose();
-    _ageController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleSubmit() async {
-    if (_approveAs == _ApproveAs.newPatient && _patientNameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nama pasien wajib diisi')),
-      );
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      final actions = ref.read(circleManagementActionsProvider.notifier);
-
-      if (_approveAs == _ApproveAs.newPatient) {
-        await actions.approveAsNewPatient(
-          circleId: widget.circleId,
-          userId: widget.request.userId,
-          adminUserId: widget.adminUserId,
-          patientName: _patientNameController.text.trim(),
-          age: int.tryParse(_ageController.text.trim()),
-          healthConditionNotes:
-              _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-        );
-      } else {
-        await actions.approveAsCaregiver(
-          circleId: widget.circleId,
-          userId: widget.request.userId,
-          adminUserId: widget.adminUserId,
-          role: _selectedRole,
-        );
-      }
-
-      if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.request.displayName} berhasil ditambahkan')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal menyetujui: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
+  final String targetRole;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+    final String label;
+    final Color bgColor;
+    final Color fgColor;
+
+    if (targetRole == 'patient') {
+      label = 'Pasien';
+      bgColor = const Color(0xFFE0E7FF);
+      fgColor = const Color(0xFF4338CA);
+    } else if (targetRole == 'editor') {
+      label = 'Anggota Input';
+      bgColor = const Color(0xFFEFF6FF);
+      fgColor = const Color(0xFF0F4C81);
+    } else {
+      label = 'View Only';
+      bgColor = const Color(0xFFF1F5F9);
+      fgColor = const Color(0xFF475569);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Setujui ${widget.request.displayName}',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Tentukan peran orang ini di dalam Care Circle.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 20),
-
-            SegmentedButton<_ApproveAs>(
-              segments: const [
-                ButtonSegment(
-                  value: _ApproveAs.caregiver,
-                  label: Text('Jadi Caregiver'),
-                  icon: Icon(Icons.people_outline_rounded),
-                ),
-                ButtonSegment(
-                  value: _ApproveAs.newPatient,
-                  label: Text('Pasien Baru'),
-                  icon: Icon(Icons.personal_injury_outlined),
-                ),
-              ],
-              selected: {_approveAs},
-              onSelectionChanged: (selection) {
-                setState(() => _approveAs = selection.first);
-              },
-            ),
-            const SizedBox(height: 20),
-
-            if (_approveAs == _ApproveAs.caregiver) ...[
-              Text('Tingkat Akses', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              RadioListTile<CaregiverRole>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Input Member'),
-                subtitle: const Text('Bisa mencatat konsumsi obat & menambah obat baru'),
-                value: CaregiverRole.editor,
-                groupValue: _selectedRole,
-                onChanged: (value) => setState(() => _selectedRole = value!),
-              ),
-              RadioListTile<CaregiverRole>(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('View Only'),
-                subtitle: const Text('Hanya bisa melihat jadwal, tidak bisa mengubah'),
-                value: CaregiverRole.viewer,
-                groupValue: _selectedRole,
-                onChanged: (value) => setState(() => _selectedRole = value!),
-              ),
-            ] else ...[
-              TextField(
-                controller: _patientNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Pasien',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _ageController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Usia (opsional)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _notesController,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Catatan Kondisi Kesehatan (opsional)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _isSubmitting ? null : _handleSubmit,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Setujui & Simpan'),
-            ),
-          ],
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fgColor,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );

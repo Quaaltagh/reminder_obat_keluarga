@@ -62,7 +62,7 @@ class PatientProfile {
       circleId: map['circleId'] as String? ?? '',
       name: map['name'] as String? ?? '',
       linkedUserId: map['linkedUserId'] as String?,
-      age: map['age'] as int?,
+      age: _parseAge(map['age']),
       healthConditionNotes: map['healthConditionNotes'] as String?,
       photoUrl: map['photoUrl'] as String?,
       isActive: map['isActive'] as bool? ?? true,
@@ -86,6 +86,14 @@ class PatientProfile {
       'createdAt': createdAt.toIso8601String(),
       'careGivers': careGivers,
     };
+  }
+
+  static int? _parseAge(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 
   static DateTime _parseDate(dynamic value) {

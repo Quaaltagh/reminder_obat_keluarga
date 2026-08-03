@@ -1,23 +1,13 @@
-// Layar "Daftar Family (Admin)" — sesuai desain Figma yang diberikan.
-// Menampilkan semua member circle beserta role tampilannya (Admin /
-// Input Member / View Only), tombol untuk mengundang anggota baru, dan
-// ikon lonceng dengan badge jumlah join request yang masih pending.
-//
-// Lokasi: lib/features/care_circle/presentation/screens/family_list_screen.dart
-//
-// Cara membuka (contoh dari dashboard / bottom nav "Family"):
-//   Navigator.push(context, MaterialPageRoute(
-//     builder: (_) => FamilyListScreen(circleId: circle.circleId),
-//   ));
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/circle_management_provider.dart';
 import 'invite_screen.dart';
 import 'join_requests_screen.dart';
+import '../../../settings/presentation/screens/settings_screen.dart';
 
-class FamilyListScreen extends ConsumerWidget {
+/// Layar "Daftar Family (Admin)" — Presisi Sesuai Gambar 2.
+class FamilyListScreen extends ConsumerStatefulWidget {
   const FamilyListScreen({
     super.key,
     required this.circleId,
@@ -25,108 +15,200 @@ class FamilyListScreen extends ConsumerWidget {
   });
 
   final String circleId;
-
-  /// UID user yang sedang login — dipakai supaya Admin tidak bisa
-  /// menghapus dirinya sendiri dari daftar (lihat _handleRemove).
   final String currentUserId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final membersAsync = ref.watch(watchFamilyMembersProvider(circleId));
-    final pendingCountAsync = ref.watch(watchPendingJoinRequestCountProvider(circleId));
+  ConsumerState<FamilyListScreen> createState() => _FamilyListScreenState();
+}
+
+class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
+  int _selectedIndex = 2; // Default active tab: "Family" (index 2)
+
+  @override
+  Widget build(BuildContext context) {
+    final membersAsync = ref.watch(watchFamilyMembersProvider(widget.circleId));
+    final pendingCountAsync = ref.watch(watchPendingJoinRequestCountProvider(widget.circleId));
+
+    final theme = Theme.of(context);
+    const primaryBlue = Color(0xFF0F4C81);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Daftar Family (Admin)'),
-        actions: [
-          _NotificationBell(
-            pendingCount: pendingCountAsync.value ?? 0,
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => JoinRequestsScreen(
-                    circleId: circleId,
-                    adminUserId: currentUserId,
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: membersAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text('Gagal memuat data keluarga: $error'),
-          ),
-        ),
-        data: (members) {
-          return ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              Text(
-                'Family Circle',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Kelola anggota dan tingkat akses pengingat obat.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 20),
-
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => InviteScreen(circleId: circleId),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Undang Anggota Baru'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              if (members.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Text(
-                    'Belum ada anggota lain di circle ini.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+      backgroundColor: const Color(0xFFF8FAFC),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top App Bar
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
+                children: [
+                  // User Profile Picture Avatar Button (Directs to Settings)
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        PageRouteBuilder(
+                          pageBuilder: (_, __, ___) => const SettingsScreen(),
+                          transitionDuration: Duration.zero,
+                          reverseTransitionDuration: Duration.zero,
                         ),
-                  ),
-                )
-              else
-                ...members.map(
-                  (member) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _FamilyMemberTile(
-                      member: member,
-                      isSelf: member.userId == currentUserId,
-                      onRemove: () => _handleRemove(context, ref, member),
+                      );
+                    },
+                    child: const CircleAvatar(
+                      radius: 19,
+                      backgroundColor: Color(0xFFDBEAFE),
+                      child: Icon(Icons.person, color: Color(0xFF0F4C81), size: 22),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Obat Keluarga',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF0F4C81),
+                    ),
+                  ),
+                  const Spacer(),
+                  _NotificationBellButton(
+                    pendingCount: pendingCountAsync.value ?? 0,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => JoinRequestsScreen(
+                            circleId: widget.circleId,
+                            adminUserId: widget.currentUserId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
 
-              const SizedBox(height: 12),
-              _RoleInfoCard(theme: Theme.of(context)),
-            ],
-          );
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  ref.invalidate(watchFamilyMembersProvider(widget.circleId));
+                },
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Family Circle',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Manage members and medication access levels.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF64748B),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => InviteScreen(circleId: widget.circleId),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.add_rounded, size: 22),
+                          label: const Text(
+                            'Invite New Member',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: primaryBlue,
+                            side: const BorderSide(color: primaryBlue, width: 1.5),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      membersAsync.when(
+                        loading: () => const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (e, _) => Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text('Gagal memuat anggota: $e'),
+                        ),
+                        data: (members) {
+                          if (members.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: Text(
+                                  'Belum ada anggota di circle ini.',
+                                  style: TextStyle(color: Color(0xFF64748B)),
+                                ),
+                              ),
+                            );
+                          }
+
+                          return Column(
+                            children: members.map((member) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: _FamilyMemberTileCard(
+                                  member: member,
+                                  isSelf: member.userId == widget.currentUserId,
+                                  onRemove: () => _handleRemove(context, ref, member),
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 12),
+
+                      const _RoleInfoBox(),
+
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      bottomNavigationBar: _BottomNavBarPill(
+        selectedIndex: _selectedIndex,
+        onTabSelected: (index) {
+          if (index == 4) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            );
+          } else {
+            setState(() => _selectedIndex = index);
+          }
         },
       ),
     );
@@ -137,7 +219,7 @@ class FamilyListScreen extends ConsumerWidget {
     WidgetRef ref,
     FamilyMemberDisplay member,
   ) async {
-    if (member.userId == currentUserId) {
+    if (member.userId == widget.currentUserId) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Kamu tidak bisa menghapus dirimu sendiri.')),
       );
@@ -148,9 +230,8 @@ class FamilyListScreen extends ConsumerWidget {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Hapus Anggota?'),
-        content: const Text(
-          'Anggota ini akan kehilangan akses ke Care Circle. Data medis '
-          'pasien yang sudah tercatat tidak akan terhapus.',
+        content: Text(
+          'Apakah kamu yakin ingin menghapus ${member.displayName} dari Care Circle?',
         ),
         actions: [
           TextButton(
@@ -159,7 +240,7 @@ class FamilyListScreen extends ConsumerWidget {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              backgroundColor: Colors.red,
             ),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: const Text('Hapus'),
@@ -172,12 +253,12 @@ class FamilyListScreen extends ConsumerWidget {
 
     try {
       await ref.read(circleManagementActionsProvider.notifier).removeMember(
-            circleId: circleId,
+            circleId: widget.circleId,
             userId: member.userId,
           );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Anggota berhasil dihapus')),
+        const SnackBar(content: Text('Anggota berhasil dihapus.')),
       );
     } catch (e) {
       if (!context.mounted) return;
@@ -188,8 +269,11 @@ class FamilyListScreen extends ConsumerWidget {
   }
 }
 
-class _NotificationBell extends StatelessWidget {
-  const _NotificationBell({required this.pendingCount, required this.onTap});
+class _NotificationBellButton extends StatelessWidget {
+  const _NotificationBellButton({
+    required this.pendingCount,
+    required this.onTap,
+  });
 
   final int pendingCount;
   final VoidCallback onTap;
@@ -200,7 +284,11 @@ class _NotificationBell extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         IconButton(
-          icon: const Icon(Icons.notifications_none_rounded),
+          icon: const Icon(
+            Icons.notifications_none_rounded,
+            color: Color(0xFF0F4C81),
+            size: 26,
+          ),
           onPressed: onTap,
         ),
         if (pendingCount > 0)
@@ -209,14 +297,19 @@ class _NotificationBell extends StatelessWidget {
             top: 6,
             child: Container(
               padding: const EdgeInsets.all(4),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.error,
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+              decoration: const BoxDecoration(
+                color: Colors.red,
                 shape: BoxShape.circle,
               ),
               child: Text(
                 '$pendingCount',
-                style: const TextStyle(color: Colors.white, fontSize: 10, height: 1),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  height: 1,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -226,8 +319,8 @@ class _NotificationBell extends StatelessWidget {
   }
 }
 
-class _FamilyMemberTile extends StatelessWidget {
-  const _FamilyMemberTile({
+class _FamilyMemberTileCard extends StatelessWidget {
+  const _FamilyMemberTileCard({
     required this.member,
     required this.isSelf,
     required this.onRemove,
@@ -239,34 +332,40 @@ class _FamilyMemberTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    // Warna aksen kiri: biru untuk Admin, abu untuk lainnya — meniru
-    // border kiri berwarna di desain Figma.
-    final accentColor = member.isAdmin ? colorScheme.primary : colorScheme.outlineVariant;
+    const primaryBlue = Color(0xFF0F4C81);
+    final isDarkAccent = member.isAdmin;
+    final accentBorderColor = isDarkAccent ? primaryBlue : const Color(0xFFCBD5E1);
 
     return Container(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border(left: BorderSide(color: accentColor, width: 4)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border(
+          left: BorderSide(color: accentBorderColor, width: 4),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 6,
+            blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 22,
-            backgroundColor: colorScheme.primaryContainer,
+            radius: 24,
+            backgroundColor: const Color(0xFFE2E8F0),
             child: Text(
-              member.userId.isNotEmpty ? member.userId[0].toUpperCase() : '?',
-              style: TextStyle(color: colorScheme.onPrimaryContainer),
+              member.displayName.isNotEmpty
+                  ? member.displayName[0].toUpperCase()
+                  : '?',
+              style: const TextStyle(
+                color: Color(0xFF0F4C81),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
             ),
           ),
           const SizedBox(width: 14),
@@ -278,39 +377,37 @@ class _FamilyMemberTile extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        // Placeholder: idealnya nama diambil dari
-                        // AppUser (users/{uid}.displayName), bukan
-                        // userId mentah. Screen ini menerima
-                        // FamilyMemberDisplay apa adanya dari provider;
-                        // lihat catatan di bagian akhir jawaban.
-                        member.userId,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                        member.displayName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     if (isSelf) ...[
                       const SizedBox(width: 6),
-                      Text(
+                      const Text(
                         '(Kamu)',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
                       ),
                     ],
                   ],
                 ),
                 const SizedBox(height: 6),
-                _RoleBadge(member: member),
+                _RoleBadge(roleLabel: member.roleLabel, isAdmin: member.isAdmin),
               ],
             ),
           ),
           if (!isSelf)
             IconButton(
-              icon: const Icon(Icons.delete_outline_rounded),
-              color: colorScheme.error,
+              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFF94A3B8)),
               onPressed: onRemove,
+              tooltip: 'Hapus Anggota',
             ),
         ],
       ),
@@ -319,67 +416,62 @@ class _FamilyMemberTile extends StatelessWidget {
 }
 
 class _RoleBadge extends StatelessWidget {
-  const _RoleBadge({required this.member});
+  const _RoleBadge({
+    required this.roleLabel,
+    required this.isAdmin,
+  });
 
-  final FamilyMemberDisplay member;
+  final String roleLabel;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    // Warna badge dibedakan sedikit: Admin lebih tegas (primary),
-    // caregiver role dengan warna netral (secondary container).
-    final Color bgColor;
-    final Color fgColor;
-    if (member.isAdmin) {
-      bgColor = colorScheme.primaryContainer;
-      fgColor = colorScheme.onPrimaryContainer;
-    } else if (member.caregiverRole == CaregiverRole.editor) {
-      bgColor = colorScheme.secondaryContainer;
-      fgColor = colorScheme.onSecondaryContainer;
-    } else {
-      bgColor = colorScheme.surfaceContainerHighest;
-      fgColor = colorScheme.onSurfaceVariant;
-    }
+    final Color bgColor = isAdmin ? const Color(0xFFDBEAFE) : const Color(0xFFE2E8F0);
+    final Color fgColor = isAdmin ? const Color(0xFF1E40AF) : const Color(0xFF475569);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Text(
-        member.roleLabel,
-        style: TextStyle(color: fgColor, fontSize: 12, fontWeight: FontWeight.w600),
+        roleLabel,
+        style: TextStyle(
+          color: fgColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
 }
 
-class _RoleInfoCard extends StatelessWidget {
-  const _RoleInfoCard({required this.theme});
-
-  final ThemeData theme;
+class _RoleInfoBox extends StatelessWidget {
+  const _RoleInfoBox();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colorScheme.primaryContainer),
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDBEAFE)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: [
-              Icon(Icons.info_outline_rounded, color: colorScheme.primary, size: 20),
-              const SizedBox(width: 8),
+            children: const [
+              Icon(Icons.info_outline_rounded, color: Color(0xFF1D4ED8), size: 20),
+              SizedBox(width: 8),
               Text(
                 'Role Access Information',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  color: colorScheme.primary,
+                style: TextStyle(
+                  color: Color(0xFF1D4ED8),
                   fontWeight: FontWeight.bold,
+                  fontSize: 14,
                 ),
               ),
             ],
@@ -387,14 +479,23 @@ class _RoleInfoCard extends StatelessWidget {
           const SizedBox(height: 10),
           Text.rich(
             TextSpan(
-              style: theme.textTheme.bodySmall,
+              style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.5),
               children: const [
-                TextSpan(text: 'Admin ', style: TextStyle(fontWeight: FontWeight.bold)),
-                TextSpan(text: 'dapat mengubah jadwal dan mengelola anggota. '),
-                TextSpan(text: 'Input Member ', style: TextStyle(fontWeight: FontWeight.bold)),
-                TextSpan(text: 'dapat mencatat konsumsi obat dan menambah obat baru. '),
-                TextSpan(text: 'View Only ', style: TextStyle(fontWeight: FontWeight.bold)),
-                TextSpan(text: 'hanya dapat melihat jadwal tanpa mengubah apa pun.'),
+                TextSpan(
+                  text: 'Admins ',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                TextSpan(text: 'can edit schedules and manage members.\n'),
+                TextSpan(
+                  text: 'Input Members ',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                TextSpan(text: 'can log medication intake and add new medications.\n'),
+                TextSpan(
+                  text: 'View Only ',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                TextSpan(text: 'can see the schedule but cannot make changes.'),
               ],
             ),
           ),
@@ -402,4 +503,97 @@ class _RoleInfoCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BottomNavBarPill extends StatelessWidget {
+  const _BottomNavBarPill({
+    required this.selectedIndex,
+    required this.onTabSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onTabSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const activeBluePill = Color(0xFF0F4C81);
+    const inactiveIconColor = Color(0xFF334155);
+    const inactiveTextColor = Color(0xFF475569);
+
+    final items = [
+      const _NavItem(icon: Icons.home_outlined, activeIcon: Icons.home, label: 'Home'),
+      const _NavItem(icon: Icons.calendar_today_outlined, activeIcon: Icons.calendar_today, label: 'Schedule'),
+      const _NavItem(icon: Icons.people_alt_outlined, activeIcon: Icons.people_alt, label: 'Family'),
+      const _NavItem(icon: Icons.medical_services_outlined, activeIcon: Icons.medical_services, label: 'Medicine'),
+      const _NavItem(icon: Icons.settings_outlined, activeIcon: Icons.settings, label: 'Settings'),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: List.generate(items.length, (index) {
+            final item = items[index];
+            final isSelected = index == selectedIndex;
+
+            return InkWell(
+              onTap: () => onTabSelected(index),
+              borderRadius: BorderRadius.circular(24),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected ? activeBluePill : Colors.transparent,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isSelected ? item.activeIcon : item.icon,
+                      color: isSelected ? Colors.white : inactiveIconColor,
+                      size: 22,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : inactiveTextColor,
+                        fontSize: 11,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+
+  const _NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
 }
