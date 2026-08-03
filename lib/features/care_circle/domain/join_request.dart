@@ -44,12 +44,16 @@ class JoinRequest {
   final DateTime requestedAt;
   final JoinRequestStatus status;
 
+  /// Role target yang diminta dari kode invite ('patient' | 'editor' | 'viewer').
+  final String? targetRole;
+
   const JoinRequest({
     required this.userId,
     required this.displayName,
     required this.email,
     required this.requestedAt,
     this.status = JoinRequestStatus.pending,
+    this.targetRole,
   });
 
   factory JoinRequest.fromMap(String userId, Map<String, dynamic> map) {
@@ -59,6 +63,7 @@ class JoinRequest {
       email: map['email'] as String? ?? '',
       requestedAt: _parseDate(map['requestedAt']),
       status: JoinRequestStatusX.fromString(map['status'] as String?),
+      targetRole: map['targetRole'] as String?,
     );
   }
 
@@ -69,6 +74,7 @@ class JoinRequest {
       'email': email,
       'requestedAt': requestedAt.toIso8601String(),
       'status': status.value,
+      if (targetRole != null) 'targetRole': targetRole,
     };
   }
 

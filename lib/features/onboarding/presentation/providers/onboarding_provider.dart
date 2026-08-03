@@ -90,19 +90,20 @@ class OnboardingService {
     required String displayName,
     required String email,
   }) async {
-    final circle = await _circleRepo.findCircleByInviteCode(inviteCode);
-    if (circle == null) {
+    final result = await _circleRepo.findCircleAndRoleByInviteCode(inviteCode);
+    if (result == null) {
       throw Exception('Kode undangan tidak ditemukan. Periksa kembali kodenya.');
     }
 
     await _circleRepo.submitJoinRequest(
-      circleId: circle.circleId,
+      circleId: result.circle.circleId,
       userId: userId,
       displayName: displayName,
       email: email,
+      targetRole: result.targetRole,
     );
 
-    return circle.circleId;
+    return result.circle.circleId;
   }
 
   /// Dipanggil setelah join request di-approve oleh Admin (terdeteksi

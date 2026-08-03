@@ -21,7 +21,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../data/care_circle_repository.dart';
 import '../../domain/care_circle.dart';
 import '../../domain/circle_member.dart';
-import '../../domain/join_request.dart';
 // PatientRepository & PatientProfile sengaja BUKAN di dalam
 // features/care_circle/ — keduanya feature terpisah karena
 // patientProfiles adalah top-level collection di Firestore, bukan
@@ -59,19 +58,18 @@ enum CaregiverRole {
 class FamilyMemberDisplay {
   const FamilyMemberDisplay({
     required this.userId,
+    required this.displayName,
+    required this.email,
     required this.circleRole,
     required this.caregiverRole,
     required this.joinedAt,
   });
 
   final String userId;
+  final String displayName;
+  final String email;
   final CircleRole circleRole;
-
-  /// Null kalau member ini admin, atau kalau dia caregiver tapi entah
-  /// kenapa belum punya entry di careGivers (data tidak konsisten —
-  /// screen sebaiknya tetap menampilkan sesuatu, bukan crash).
   final CaregiverRole? caregiverRole;
-
   final DateTime joinedAt;
 
   bool get isAdmin => circleRole == CircleRole.admin;
@@ -80,9 +78,9 @@ class FamilyMemberDisplay {
 }
 
 /// Menggabungkan watchMembers() (CareCircleRepository) dengan
-/// watchPatient() dari pasien pertama circle (PatientRepository), supaya
-/// Daftar Family dapat badge role yang benar tanpa screen perlu
-/// menggabungkan dua stream sendiri.
+/// watchPatient() dari pasien pertama circle (PatientRepository), serta
+/// data profil user dari Firestore (displayName), supaya
+/// Daftar Family dapat nama & badge role yang benar.
 @riverpod
 Stream<List<FamilyMemberDisplay>> watchFamilyMembers(Ref ref, String circleId) {
   final careCircleRepo = ref.watch(careCircleRepositoryProvider);
@@ -105,15 +103,33 @@ Stream<List<FamilyMemberDisplay>> watchFamilyMembers(Ref ref, String circleId) {
 
     return membersStream.asyncMap((members) async {
       final patient = await patientStream.first;
-      return members.map((member) {
+      final displayList = <FamilyMemberDisplay>[];
+
+      for (final member in members) {
+        String name = member.userId;
+        String email = '';
+        try {
+          final userSnap = await FirebaseFirestore.instance.collection('users').doc(member.userId).get();
+          if (userSnap.exists && userSnap.data() != null) {
+            final data = userSnap.data()!;
+            name = (data['displayName'] as String?) ?? member.userId;
+            email = (data['email'] as String?) ?? '';
+          }
+        } catch (_) {}
+
         final roleValue = patient?.careGivers[member.userId];
-        return FamilyMemberDisplay(
-          userId: member.userId,
-          circleRole: member.circleRole,
-          caregiverRole: CaregiverRole.fromValue(roleValue),
-          joinedAt: member.joinedAt,
+        displayList.add(
+          FamilyMemberDisplay(
+            userId: member.userId,
+            displayName: (name.isNotEmpty && name != member.userId) ? name : (email.isNotEmpty ? email : 'Family Member'),
+            email: email,
+            circleRole: member.circleRole,
+            caregiverRole: CaregiverRole.fromValue(roleValue),
+            joinedAt: member.joinedAt,
+          ),
         );
-      }).toList();
+      }
+      return displayList;
     });
   });
 }
@@ -158,7 +174,19 @@ class CircleManagementActions extends _$CircleManagementActions {
       approvedByAdminId: adminUserId,
     );
 
-    // 2. Buat PatientProfile baru, linked ke user yang baru approve.
+    // 2. Jika circle sudah punya PatientProfile yang belum terhubung (linkedUserId kosong/null), hubungkan!
+    final circle = await careCircleRepo.getCircle(circleId);
+    if (circle != null && circle.patientProfileIds.isNotEmpty) {
+      for (final pid in circle.patientProfileIds) {
+        final profile = await patientRepo.getPatientProfile(pid);
+        if (profile != null && (profile.linkedUserId == null || profile.linkedUserId!.isEmpty)) {
+          await patientRepo.linkUserToPatientProfile(patientId: pid, userId: userId);
+          return;
+        }
+      }
+    }
+
+    // 3. Jika belum ada profil pasien yang cocok/kosong, buat PatientProfile baru.
     final patientId = await patientRepo.createPatientProfile(
       circleId: circleId,
       name: patientName,
@@ -167,7 +195,6 @@ class CircleManagementActions extends _$CircleManagementActions {
       healthConditionNotes: healthConditionNotes,
     );
 
-    // 3. Daftarkan patientId baru ke careCircles.patientProfileIds.
     await careCircleRepo.addPatientProfileId(circleId, patientId);
   }
 
@@ -185,15 +212,6 @@ class CircleManagementActions extends _$CircleManagementActions {
     final careCircleRepo = ref.read(careCircleRepositoryProvider);
     final patientRepo = ref.read(patientRepositoryProvider);
 
-    final circle = await careCircleRepo.getCircle(circleId);
-    if (circle == null || circle.patientProfileIds.isEmpty) {
-      throw StateError(
-        'Circle belum punya Patient Profile — buat profil pasien '
-        'terlebih dahulu sebelum menambahkan caregiver.',
-      );
-    }
-    final firstPatientId = circle.patientProfileIds.first;
-
     // 1. Approve dulu supaya userId resmi jadi member circle (role member).
     await careCircleRepo.approveJoinRequest(
       circleId: circleId,
@@ -201,12 +219,17 @@ class CircleManagementActions extends _$CircleManagementActions {
       approvedByAdminId: adminUserId,
     );
 
-    // 2. Set role caregiver di careGivers map milik pasien pertama.
-    await patientRepo.setCaregiverRole(
-      patientId: firstPatientId,
-      userId: userId,
-      role: role.value,
-    );
+    // 2. Set role caregiver di careGivers map milik pasien di circle ini (jika ada).
+    final circle = await careCircleRepo.getCircle(circleId);
+    if (circle != null && circle.patientProfileIds.isNotEmpty) {
+      for (final patientId in circle.patientProfileIds) {
+        await patientRepo.setCaregiverRole(
+          patientId: patientId,
+          userId: userId,
+          role: role.value,
+        );
+      }
+    }
   }
 
   Future<void> reject({required String circleId, required String userId}) async {

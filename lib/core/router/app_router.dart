@@ -25,6 +25,7 @@ import '../../features/onboarding/presentation/screens/onboarding_choice_screen.
 import '../../features/onboarding/presentation/screens/create_circle_screen.dart';
 import '../../features/onboarding/presentation/screens/join_circle_screen.dart';
 import '../../features/onboarding/presentation/screens/waiting_approval_screen.dart';
+import '../../features/medication/presentation/screens/schedule_screen.dart';
 
 part 'app_router.g.dart';
 
@@ -186,6 +187,11 @@ GoRouter appRouter(Ref ref) {
         path: '/patient-setup-confirm',
         name: 'patient-setup-confirm',
         builder: (context, state) => const PatientSetupConfirmScreen(),
+      ),
+      GoRoute(
+        path: '/schedule',
+        name: 'schedule',
+        builder: (context, state) => const ScheduleScreen(),
       ),
     ],
   );
