@@ -1,14 +1,96 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../auth/data/user_repository.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 
-class OnboardingChoiceScreen extends ConsumerWidget {
+class OnboardingChoiceScreen extends ConsumerStatefulWidget {
   const OnboardingChoiceScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OnboardingChoiceScreen> createState() =>
+      _OnboardingChoiceScreenState();
+}
+
+class _OnboardingChoiceScreenState
+    extends ConsumerState<OnboardingChoiceScreen> {
+  bool _isCheckingApprovedJoin = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndSyncApprovedJoin();
+    });
+  }
+
+  Future<void> _checkAndSyncApprovedJoin() async {
+    final currentUser = ref.read(currentUserProvider);
+    if (currentUser == null) {
+      if (mounted) setState(() => _isCheckingApprovedJoin = false);
+      return;
+    }
+
+    try {
+      final userRepo = ref.read(userRepositoryProvider);
+
+      // 1. Pembersihan otomatis: Jika user punya circleId di profilnya tapi sudah dihapus dari members oleh Admin
+      final appUser = await userRepo.getUser(currentUser.uid);
+      if (appUser != null && appUser.circleIds.isNotEmpty) {
+        for (final cid in List<String>.from(appUser.circleIds)) {
+          final mDoc = await FirebaseFirestore.instance
+              .collection('careCircles')
+              .doc(cid)
+              .collection('members')
+              .doc(currentUser.uid)
+              .get();
+          if (!mDoc.exists) {
+            debugPrint('🧹 [AUTO-CLEANUP] Menghapus circleId $cid dari profil user karena sudah dihapus Admin');
+            await userRepo.removeCircleId(currentUser.uid, cid);
+          }
+        }
+      }
+
+      // 2. Cek apakah ada circle di mana user menjadi member resmi di subcollection members
+      final circlesSnap = await FirebaseFirestore.instance.collection('careCircles').get();
+      for (final circleDoc in circlesSnap.docs) {
+        final circleId = circleDoc.id;
+
+        final memberDoc = await circleDoc.reference.collection('members').doc(currentUser.uid).get();
+        if (memberDoc.exists) {
+          debugPrint('✅ [AUTO-SYNC] Ditemukan member aktif di circle: $circleId');
+          await userRepo.addCircleId(currentUser.uid, circleId);
+          if (mounted) context.go('/dashboard');
+          return;
+        } else {
+          // Jika memberDoc tidak ada tapi ada sisa joinRequest lama, bersihkan agar tidak menyebabkan siklus pengulangan
+          final reqDoc = await circleDoc.reference.collection('joinRequests').doc(currentUser.uid).get();
+          if (reqDoc.exists) {
+            debugPrint('🧹 [AUTO-CLEANUP] Menghapus sisa joinRequest lama untuk user ${currentUser.uid}');
+            await reqDoc.reference.delete();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ [AUTO-SYNC] Error checking approved join: $e');
+    }
+
+    if (mounted) {
+      setState(() => _isCheckingApprovedJoin = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isCheckingApprovedJoin) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F7FB),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final theme = Theme.of(context);
     const primaryBlue = Color(0xFF1D68B4);
 

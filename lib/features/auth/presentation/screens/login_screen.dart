@@ -9,11 +9,13 @@ import '../providers/auth_provider.dart';
 class LoginScreen extends ConsumerStatefulWidget {
   final String? initialEmail;
   final String? initialPassword;
+  final bool isPatientSetup;
 
   const LoginScreen({
     super.key,
     this.initialEmail,
     this.initialPassword,
+    this.isPatientSetup = false,
   });
 
   @override
@@ -89,7 +91,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         final appUser = await userRepo.getUser(uid);
 
         if (mounted) {
-          if (appUser != null && appUser.circleIds.isNotEmpty) {
+          if (widget.isPatientSetup) {
+            context.go('/patient-link-device');
+          } else if (appUser != null && appUser.circleIds.isNotEmpty) {
             context.go('/dashboard');
           } else {
             context.go('/onboarding');

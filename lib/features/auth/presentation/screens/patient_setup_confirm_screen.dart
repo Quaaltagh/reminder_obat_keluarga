@@ -217,19 +217,8 @@ class PatientSetupConfirmScreen extends ConsumerWidget {
 
               // 5. Tombol Sekunder: "🛡️ Lanjutkan, saya Admin yang sedang setup HP pasien"
               TextButton(
-                onPressed: () async {
-                  // Tandai mode pasien dan arahkan ke login/setup
-                  final deviceService = ref.read(deviceModeServiceProvider);
-                  await deviceService.setPatientMode('temp_patient_mode');
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Mode HP Pasien berhasil diaktifkan.'),
-                        backgroundColor: Color(0xFF0F4C81),
-                      ),
-                    );
-                    context.go('/login');
-                  }
+                onPressed: () {
+                  context.go('/register?mode=patient');
                 },
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,

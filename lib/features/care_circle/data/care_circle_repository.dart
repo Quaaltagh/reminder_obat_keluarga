@@ -17,6 +17,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../domain/care_circle.dart';
 import '../domain/circle_member.dart';
 import '../domain/join_request.dart';
+import '../../auth/data/user_repository.dart';
+import '../../patient/data/patient_repository.dart';
 
 part 'care_circle_repository.g.dart';
 
@@ -226,11 +228,59 @@ class CareCircleRepository {
 
     final batch = _firestore.batch();
     batch.set(circleRef.collection('members').doc(userId), newMember.toMap());
-    batch.update(
-      circleRef.collection('joinRequests').doc(userId),
-      {'status': JoinRequestStatus.approved.value},
-    );
+
+    final reqRef = circleRef.collection('joinRequests').doc(userId);
+    final reqSnap = await reqRef.get();
+    if (reqSnap.exists) {
+      batch.update(reqRef, {'status': JoinRequestStatus.approved.value});
+    }
+
     await batch.commit();
+  }
+
+  /// Approve join request DAN jadikan orang tersebut Patient baru
+  Future<void> approveAsNewPatient({
+    required String circleId,
+    required String userId,
+    required String adminUserId,
+    required String patientName,
+    required UserRepository userRepo,
+    required PatientRepository patientRepo,
+    int? age,
+    String? healthConditionNotes,
+  }) async {
+    // 1. Approve dulu supaya userId resmi jadi member circle.
+    await approveJoinRequest(
+      circleId: circleId,
+      userId: userId,
+      approvedByAdminId: adminUserId,
+    );
+
+    // 2. Update users/{userId}.circleIds
+    await userRepo.addCircleId(userId, circleId);
+
+    // 3. Jika circle sudah punya PatientProfile yang belum terhubung, hubungkan!
+    final circle = await getCircle(circleId);
+    if (circle != null && circle.patientProfileIds.isNotEmpty) {
+      for (final pid in circle.patientProfileIds) {
+        final profile = await patientRepo.getPatientProfile(pid);
+        if (profile != null && (profile.linkedUserId == null || profile.linkedUserId!.isEmpty)) {
+          await patientRepo.linkUserToPatientProfile(patientId: pid, userId: userId);
+          return;
+        }
+      }
+    }
+
+    // 4. Jika belum ada profil pasien yang cocok/kosong, buat PatientProfile baru.
+    final patientId = await patientRepo.createPatientProfile(
+      circleId: circleId,
+      name: patientName,
+      linkedUserId: userId,
+      age: age,
+      healthConditionNotes: healthConditionNotes,
+    );
+
+    await addPatientProfileId(circleId, patientId);
   }
 
   /// Admin reject join request: HANYA update status, tidak pernah

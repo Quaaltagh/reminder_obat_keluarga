@@ -47,6 +47,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ? ref.watch(watchPendingJoinRequestCountProvider(circleId))
                 : const AsyncValue<int>.data(0);
 
+            final membersAsync = circleId != null
+                ? ref.watch(watchFamilyMembersProvider(circleId))
+                : const AsyncValue<List<FamilyMemberDisplay>>.data([]);
+
+            final isCurrentAdmin = membersAsync.value?.any((m) => m.userId == user.uid && m.isAdmin) ?? false;
+
             final displayName = (appUser?.displayName != null && appUser!.displayName.isNotEmpty)
                 ? appUser.displayName
                 : (user.displayName != null && user.displayName!.isNotEmpty
@@ -88,23 +94,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       const Spacer(),
 
-                      // Bell Notification Button
-                      _NotificationBellButton(
-                        pendingCount: pendingCountAsync.value ?? 0,
-                        onTap: () {
-                          if (circleId != null) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => JoinRequestsScreen(
-                                  circleId: circleId,
-                                  adminUserId: user.uid,
+                      // Bell Notification Button (Khusus Admin)
+                      if (isCurrentAdmin)
+                        _NotificationBellButton(
+                          pendingCount: pendingCountAsync.value ?? 0,
+                          onTap: () {
+                            if (circleId != null) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => JoinRequestsScreen(
+                                    circleId: circleId,
+                                    adminUserId: user.uid,
+                                  ),
                                 ),
-                              ),
-                            );
-                          }
-                        },
-                      ),
+                              );
+                            }
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -190,24 +197,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ),
                           child: Column(
                             children: [
-                              // Notifications Switch
-                              ListTile(
-                                leading: const Icon(Icons.notifications_none_outlined, color: Color(0xFF334155)),
-                                title: const Text(
-                                  'Notifications',
-                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                              // Notifications Switch (Khusus Admin)
+                              if (isCurrentAdmin) ...[
+                                ListTile(
+                                  leading: const Icon(Icons.notifications_none_outlined, color: Color(0xFF334155)),
+                                  title: const Text(
+                                    'Notifications',
+                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                                  ),
+                                  trailing: Switch.adaptive(
+                                    value: _notificationsEnabled,
+                                    activeTrackColor: const Color(0xFF2563EB),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _notificationsEnabled = val;
+                                      });
+                                    },
+                                  ),
                                 ),
-                                trailing: Switch.adaptive(
-                                  value: _notificationsEnabled,
-                                  activeTrackColor: const Color(0xFF2563EB),
-                                  onChanged: (val) {
-                                    setState(() {
-                                      _notificationsEnabled = val;
-                                    });
-                                  },
-                                ),
-                              ),
-                              const Divider(height: 1, indent: 16, endIndent: 16),
+                                const Divider(height: 1, indent: 16, endIndent: 16),
+                              ],
                               // Language Selector
                               ListTile(
                                 leading: const Icon(Icons.language_outlined, color: Color(0xFF334155)),

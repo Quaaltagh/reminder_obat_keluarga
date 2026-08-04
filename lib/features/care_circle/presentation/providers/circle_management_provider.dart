@@ -26,6 +26,7 @@ import '../../domain/circle_member.dart';
 // patientProfiles adalah top-level collection di Firestore, bukan
 // sub-konsep dari careCircles. Sesuaikan path relatif ini kalau lokasi
 // folder "patient" kamu berbeda dari lib/features/patient/.
+import '../../../auth/data/user_repository.dart';
 import '../../../patient/data/patient_repository.dart';
 import '../../../patient/domain/patient_profile.dart';
 
@@ -101,35 +102,36 @@ Stream<List<FamilyMemberDisplay>> watchFamilyMembers(Ref ref, String circleId) {
         ? patientRepo.watchPatient(firstPatientId)
         : Stream<PatientProfile?>.value(null);
 
-    return membersStream.asyncMap((members) async {
-      final patient = await patientStream.first;
-      final displayList = <FamilyMemberDisplay>[];
+    return membersStream.asyncExpand((members) {
+      return patientStream.asyncMap((patient) async {
+        final displayList = <FamilyMemberDisplay>[];
 
-      for (final member in members) {
-        String name = member.userId;
-        String email = '';
-        try {
-          final userSnap = await FirebaseFirestore.instance.collection('users').doc(member.userId).get();
-          if (userSnap.exists && userSnap.data() != null) {
-            final data = userSnap.data()!;
-            name = (data['displayName'] as String?) ?? member.userId;
-            email = (data['email'] as String?) ?? '';
-          }
-        } catch (_) {}
+        for (final member in members) {
+          String name = member.userId;
+          String email = '';
+          try {
+            final userSnap = await FirebaseFirestore.instance.collection('users').doc(member.userId).get();
+            if (userSnap.exists && userSnap.data() != null) {
+              final data = userSnap.data()!;
+              name = (data['displayName'] as String?) ?? member.userId;
+              email = (data['email'] as String?) ?? '';
+            }
+          } catch (_) {}
 
-        final roleValue = patient?.careGivers[member.userId];
-        displayList.add(
-          FamilyMemberDisplay(
-            userId: member.userId,
-            displayName: (name.isNotEmpty && name != member.userId) ? name : (email.isNotEmpty ? email : 'Family Member'),
-            email: email,
-            circleRole: member.circleRole,
-            caregiverRole: CaregiverRole.fromValue(roleValue),
-            joinedAt: member.joinedAt,
-          ),
-        );
-      }
-      return displayList;
+          final roleValue = patient?.careGivers[member.userId];
+          displayList.add(
+            FamilyMemberDisplay(
+              userId: member.userId,
+              displayName: (name.isNotEmpty && name != member.userId) ? name : (email.isNotEmpty ? email : 'Family Member'),
+              email: email,
+              circleRole: member.circleRole,
+              caregiverRole: CaregiverRole.fromValue(roleValue),
+              joinedAt: member.joinedAt,
+            ),
+          );
+        }
+        return displayList;
+      });
     });
   });
 }
@@ -147,7 +149,7 @@ Stream<int> watchPendingJoinRequestCount(Ref ref, String circleId) {
 /// jadi ditaruh di provider layer ini — bukan di masing-masing
 /// repository — supaya masing-masing repository tetap fokus ke satu
 /// collection saja (konsisten dengan pola OnboardingService).
-@riverpod
+@Riverpod(keepAlive: true)
 class CircleManagementActions extends _$CircleManagementActions {
   @override
   void build() {}
@@ -166,6 +168,7 @@ class CircleManagementActions extends _$CircleManagementActions {
   }) async {
     final careCircleRepo = ref.read(careCircleRepositoryProvider);
     final patientRepo = ref.read(patientRepositoryProvider);
+    final userRepo = ref.read(userRepositoryProvider);
 
     // 1. Approve dulu supaya userId resmi jadi member circle (role member).
     await careCircleRepo.approveJoinRequest(
@@ -174,7 +177,10 @@ class CircleManagementActions extends _$CircleManagementActions {
       approvedByAdminId: adminUserId,
     );
 
-    // 2. Jika circle sudah punya PatientProfile yang belum terhubung (linkedUserId kosong/null), hubungkan!
+    // 2. Update users/{userId}.circleIds agar user resmi memiliki circleId di profil Firestore-nya
+    await userRepo.addCircleId(userId, circleId);
+
+    // 3. Jika circle sudah punya PatientProfile yang belum terhubung (linkedUserId kosong/null), hubungkan!
     final circle = await careCircleRepo.getCircle(circleId);
     if (circle != null && circle.patientProfileIds.isNotEmpty) {
       for (final pid in circle.patientProfileIds) {
@@ -186,7 +192,7 @@ class CircleManagementActions extends _$CircleManagementActions {
       }
     }
 
-    // 3. Jika belum ada profil pasien yang cocok/kosong, buat PatientProfile baru.
+    // 4. Jika belum ada profil pasien yang cocok/kosong, buat PatientProfile baru.
     final patientId = await patientRepo.createPatientProfile(
       circleId: circleId,
       name: patientName,
@@ -211,6 +217,7 @@ class CircleManagementActions extends _$CircleManagementActions {
   }) async {
     final careCircleRepo = ref.read(careCircleRepositoryProvider);
     final patientRepo = ref.read(patientRepositoryProvider);
+    final userRepo = ref.read(userRepositoryProvider);
 
     // 1. Approve dulu supaya userId resmi jadi member circle (role member).
     await careCircleRepo.approveJoinRequest(
@@ -219,7 +226,31 @@ class CircleManagementActions extends _$CircleManagementActions {
       approvedByAdminId: adminUserId,
     );
 
-    // 2. Set role caregiver di careGivers map milik pasien di circle ini (jika ada).
+    // 2. Update users/{userId}.circleIds agar user resmi memiliki circleId di profil Firestore-nya
+    await userRepo.addCircleId(userId, circleId);
+
+    // 3. Set role caregiver di careGivers map milik pasien di circle ini (jika ada).
+    final circle = await careCircleRepo.getCircle(circleId);
+    if (circle != null && circle.patientProfileIds.isNotEmpty) {
+      for (final patientId in circle.patientProfileIds) {
+        await patientRepo.setCaregiverRole(
+          patientId: patientId,
+          userId: userId,
+          role: role.value,
+        );
+      }
+    }
+  }
+
+  /// Mengubah role caregiver ("editor" <-> "viewer") untuk member yang sudah ada.
+  Future<void> updateCaregiverRole({
+    required String circleId,
+    required String userId,
+    required CaregiverRole role,
+  }) async {
+    final careCircleRepo = ref.read(careCircleRepositoryProvider);
+    final patientRepo = ref.read(patientRepositoryProvider);
+
     final circle = await careCircleRepo.getCircle(circleId);
     if (circle != null && circle.patientProfileIds.isNotEmpty) {
       for (final patientId in circle.patientProfileIds) {
@@ -238,15 +269,41 @@ class CircleManagementActions extends _$CircleManagementActions {
   }
 
   /// Menghapus anggota dari circle (tombol tempat sampah di Daftar Family).
-  /// TIDAK menghapus PatientProfile terkait meski member itu linkedUserId
-  /// suatu pasien — itu keputusan terpisah yang sengaja tidak
-  /// diotomatisasi (menghapus akses ≠ menghapus data medis pasien).
+  /// Menghapus akses member dari subcollection members, joinRequests,
+  /// user.circleIds, dan patientProfiles.careGivers.
   Future<void> removeMember({required String circleId, required String userId}) async {
+    final userRepo = ref.read(userRepositoryProvider);
+    final patientRepo = ref.read(patientRepositoryProvider);
+    final careCircleRepo = ref.read(careCircleRepositoryProvider);
+
+    // 1. Hapus dokumen member dari subcollection members
     await FirebaseFirestore.instance
         .collection('careCircles')
         .doc(circleId)
         .collection('members')
         .doc(userId)
         .delete();
+
+    // 2. Hapus dokumen joinRequest (jika ada)
+    await FirebaseFirestore.instance
+        .collection('careCircles')
+        .doc(circleId)
+        .collection('joinRequests')
+        .doc(userId)
+        .delete();
+
+    // 3. Hapus circleId dari dokumen profil user (users/{userId}.circleIds)
+    await userRepo.removeCircleId(userId, circleId);
+
+    // 4. Hapus role caregiver di careGivers map milik pasien dalam circle ini
+    final circle = await careCircleRepo.getCircle(circleId);
+    if (circle != null) {
+      for (final patientId in circle.patientProfileIds) {
+        await patientRepo.removeCaregiverRole(
+          patientId: patientId,
+          userId: userId,
+        );
+      }
+    }
   }
 }

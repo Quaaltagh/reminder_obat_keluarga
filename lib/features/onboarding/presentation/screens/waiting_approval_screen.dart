@@ -31,8 +31,14 @@ class _WaitingApprovalScreenState
         userId: userId,
         circleId: widget.circleId,
       );
-      debugPrint('✅ [JOIN] Approved & finalized untuk circle: ${widget.circleId}');
-      if (mounted) context.goNamed('dashboard');
+      if (mounted) {
+        final isPatientDevice = ref.read(isPatientModeDeviceProvider).value ?? false;
+        if (isPatientDevice) {
+          context.go('/patient-dashboard');
+        } else {
+          context.goNamed('dashboard');
+        }
+      }
     } catch (e) {
       debugPrint('🔴 [JOIN] Gagal finalize setelah approved: $e');
       if (mounted) setState(() => _isFinalizing = false);

@@ -8,7 +8,9 @@ import '../../data/user_repository.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.isPatientSetup = false});
+
+  final bool isPatientSetup;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -87,18 +89,32 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       // Simpan data registrasi ke provider sementara agar otomatis terisi di login
       ref.read(lastRegisteredCredentialsProvider.notifier).setCredentials(email, password);
 
-      // Sign out agar tidak langsung masuk otomatis
-      await authRepo.signOut();
+      if (widget.isPatientSetup) {
+        await authRepo.signOut();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Akun pasien berhasil dibuat! Silakan login untuk melanjutkan setup.'),
+              backgroundColor: Color(0xFF0F4C81),
+              duration: Duration(seconds: 3),
+            ),
+          );
+          context.go('/login?mode=patient');
+        }
+      } else {
+        // Sign out agar tidak langsung masuk otomatis
+        await authRepo.signOut();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Akun berhasil dibuat! Silakan klik Login.'),
-            backgroundColor: Color(0xFF0F4C81),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        context.go('/login');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Akun berhasil dibuat! Silakan klik Login.'),
+              backgroundColor: Color(0xFF0F4C81),
+              duration: Duration(seconds: 3),
+            ),
+          );
+          context.go('/login');
+        }
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) {

@@ -64,6 +64,10 @@ class AuthRepository {
     return null;
   }
 
+  Future<UserCredential> signInAnonymously() async {
+    return await _auth.signInAnonymously();
+  }
+
   Future<void> signOut() async {
     try {
       await GoogleSignIn().signOut();
@@ -134,10 +138,14 @@ Future<String?> devicePatientId(Ref ref) async {
 /// Admin selesai mengisi form Create Patient Profile di halaman
 /// konfirmasi setup. Dipanggil dari alur "Setup HP Pasien".
 class DeviceModeService {
+  final Ref _ref;
+  DeviceModeService(this._ref);
+
   Future<void> setPatientMode(String patientId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kDeviceModeKey, 'patient');
     await prefs.setString(_kDevicePatientIdKey, patientId);
+    _ref.invalidate(isPatientModeDeviceProvider);
   }
 
   /// Untuk keperluan testing/reset, atau kalau device dialihfungsikan
@@ -146,10 +154,11 @@ class DeviceModeService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kDeviceModeKey);
     await prefs.remove(_kDevicePatientIdKey);
+    _ref.invalidate(isPatientModeDeviceProvider);
   }
 }
 
 @riverpod
 DeviceModeService deviceModeService(Ref ref) {
-  return DeviceModeService();
+  return DeviceModeService(ref);
 }
