@@ -71,11 +71,18 @@ class UserRepository {
   }
 
   /// Menambahkan circleId ke field `circleIds` milik user. Dipanggil
-  /// saat user berhasil create/join sebuah Care Circle (dipakai nanti
-  /// di onboarding flow — poin 4 di roadmap).
+  /// saat user berhasil create/join sebuah Care Circle.
   Future<void> addCircleId(String uid, String circleId) async {
     await _usersCollection.doc(uid).update({
       'circleIds': FieldValue.arrayUnion([circleId]),
+    });
+  }
+
+  /// Menghapus circleId dari field `circleIds` milik user. Dipanggil
+  /// saat Admin menghapus member dari Care Circle.
+  Future<void> removeCircleId(String uid, String circleId) async {
+    await _usersCollection.doc(uid).update({
+      'circleIds': FieldValue.arrayRemove([circleId]),
     });
   }
 

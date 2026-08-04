@@ -27,19 +27,18 @@ import '../../features/onboarding/presentation/screens/join_circle_screen.dart';
 import '../../features/onboarding/presentation/screens/waiting_approval_screen.dart';
 import '../../features/medication/presentation/screens/schedule_screen.dart';
 
+import '../../features/patient/presentation/screens/patient_link_device_screen.dart';
+import '../../features/patient/presentation/screens/patient_dashboard_screen.dart';
+
 part 'app_router.g.dart';
 
 /// Provider utama GoRouter. Redirect logic di sini mengikuti diagram alur:
 ///
 /// splash -> cek device_mode lokal
-///   -> "patient" -> Simplified Patient Home (belum diimplementasi, TODO)
+///   -> "patient" -> Simplified Patient Home
 ///   -> normal    -> cek Firebase Auth
 ///        -> belum login -> Login/Register
 ///        -> sudah login -> cek circle membership -> Dashboard atau Onboarding
-///
-/// Kenapa redirect logic dipusatkan di sini (bukan tersebar di tiap
-/// screen)? Supaya ada SATU sumber kebenaran untuk "siapa boleh lihat
-/// halaman apa", gampang di-debug dan di-test.
 @riverpod
 GoRouter appRouter(Ref ref) {
   final refreshListenable = AppRouterRefreshListenable(ref);
@@ -54,9 +53,14 @@ GoRouter appRouter(Ref ref) {
       final isSplash = state.matchedLocation == '/splash';
       final isLoginOrRegister = state.matchedLocation == '/login' ||
           state.matchedLocation == '/register' ||
-          state.matchedLocation == '/patient-setup-confirm';
+          state.matchedLocation == '/patient-setup-confirm' ||
+          state.matchedLocation == '/patient-link-device';
       final isOnboardingRoute =
           state.matchedLocation.startsWith('/onboarding');
+      final isPatientLinkDevice =
+          state.matchedLocation == '/patient-link-device';
+      final isPatientDashboard =
+          state.matchedLocation == '/patient-dashboard';
 
       // 1. Splash Screen selalu tampil pertama kali tanpa di-override oleh router
       if (isSplash) {
@@ -64,7 +68,22 @@ GoRouter appRouter(Ref ref) {
         return null;
       }
 
-      // 2. Cek status Auth Firebase
+      // 2. Cek Mode HP Pasien lokal (perangkat khusus lansia/pasien)
+      final isPatientDevice = ref.read(isPatientModeDeviceProvider).value ?? false;
+      if (isPatientDevice) {
+        if (!isPatientDashboard) {
+          debugPrint('🔵 Mode Pasien Aktif -> Redirect ke /patient-dashboard');
+          return '/patient-dashboard';
+        }
+        return null;
+      }
+
+      // 3. Jika sedang di alur setup HP pasien (/patient-link-device), biarkan berjalan
+      if (isPatientLinkDevice) {
+        return null;
+      }
+
+      // 4. Cek status Auth Firebase
       final authState = ref.read(authStateChangesProvider);
       final isLoading = authState.isLoading;
       debugPrint('🔵 authState.isLoading = $isLoading');
@@ -96,7 +115,7 @@ GoRouter appRouter(Ref ref) {
         return null;
       }
 
-      // 3. Sudah login -> cek circle membership di Firestore
+      // 5. Sudah login -> cek circle membership di Firestore
       debugPrint('🔵 Mulai cek circle membership...');
       final appUserAsync = refreshListenable.currentAppUser;
 
@@ -125,6 +144,11 @@ GoRouter appRouter(Ref ref) {
       }
 
       if (isSplash || isLoginOrRegister || isOnboardingRoute) {
+        final isPatientDeviceNow = ref.read(isPatientModeDeviceProvider).value ?? false;
+        if (isPatientDeviceNow) {
+          debugPrint('🔵 Redirect ke /patient-dashboard (Mode Pasien)');
+          return '/patient-dashboard';
+        }
         debugPrint('🔵 Redirect ke /dashboard');
         return '/dashboard';
       }
@@ -144,16 +168,21 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) {
           final email = state.uri.queryParameters['email'];
           final password = state.uri.queryParameters['password'];
+          final isPatientSetup = state.uri.queryParameters['mode'] == 'patient';
           return LoginScreen(
             initialEmail: email,
             initialPassword: password,
+            isPatientSetup: isPatientSetup,
           );
         },
       ),
       GoRoute(
         path: '/register',
         name: 'register',
-        builder: (context, state) => const RegisterScreen(),
+        builder: (context, state) {
+          final isPatientSetup = state.uri.queryParameters['mode'] == 'patient';
+          return RegisterScreen(isPatientSetup: isPatientSetup);
+        },
       ),
       GoRoute(
         path: '/dashboard',
@@ -187,6 +216,16 @@ GoRouter appRouter(Ref ref) {
         path: '/patient-setup-confirm',
         name: 'patient-setup-confirm',
         builder: (context, state) => const PatientSetupConfirmScreen(),
+      ),
+      GoRoute(
+        path: '/patient-link-device',
+        name: 'patient-link-device',
+        builder: (context, state) => const PatientLinkDeviceScreen(),
+      ),
+      GoRoute(
+        path: '/patient-dashboard',
+        name: 'patient-dashboard',
+        builder: (context, state) => const PatientDashboardScreen(),
       ),
       GoRoute(
         path: '/schedule',

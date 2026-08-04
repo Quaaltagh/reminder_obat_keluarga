@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../auth/data/user_repository.dart';
@@ -58,6 +59,42 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         }
 
         final circleId = appUser.circleIds.first;
+
+        // Auto-redirect jika Mode Pasien aktif atau user ini adalah Pasien
+        final isPatientDevice = ref.watch(isPatientModeDeviceProvider).value ?? false;
+        final activePatientsAsync = ref.watch(watchActivePatientsInCircleProvider(circleId));
+        final activePatients = activePatientsAsync.value ?? [];
+        final isUserPatient = activePatients.any((p) => p.linkedUserId == user.uid);
+
+        if (isPatientDevice || isUserPatient) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              context.go('/patient-dashboard');
+            }
+          });
+          return const Scaffold(
+            backgroundColor: Color(0xFFF8FAFC),
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFF0F4C81)),
+            ),
+          );
+        }
+
+        // Verifikasi keanggotaan: Jika user sudah dihapus Admin, bersihkan circleId dan router akan redirect ke /onboarding
+        final membersAsync = ref.watch(watchFamilyMembersProvider(circleId));
+        if (membersAsync.hasValue) {
+          final members = membersAsync.value ?? [];
+          final isStillMember = members.any((m) => m.userId == user.uid);
+          if (!isStillMember) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(userRepositoryProvider).removeCircleId(user.uid, circleId);
+            });
+            return const Scaffold(
+              backgroundColor: Color(0xFFF8FAFC),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+        }
 
         void handleTabSelected(int index) async {
           if (index == 4) {
@@ -136,6 +173,8 @@ class _DashboardHomeContentState extends ConsumerState<_DashboardHomeContent> {
   Widget build(BuildContext context) {
     final patientsAsync = ref.watch(watchActivePatientsInCircleProvider(widget.circleId));
     final pendingCountAsync = ref.watch(watchPendingJoinRequestCountProvider(widget.circleId));
+    final membersAsync = ref.watch(watchFamilyMembersProvider(widget.circleId));
+    final isCurrentAdmin = membersAsync.value?.any((m) => m.userId == widget.currentUserId && m.isAdmin) ?? false;
     const primaryBlue = Color(0xFF0F4C81);
 
     return Scaffold(
@@ -173,20 +212,21 @@ class _DashboardHomeContentState extends ConsumerState<_DashboardHomeContent> {
                     ),
                   ),
                   const Spacer(),
-                  _NotificationBellButton(
-                    pendingCount: pendingCountAsync.value ?? 0,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => JoinRequestsScreen(
-                            circleId: widget.circleId,
-                            adminUserId: widget.currentUserId,
+                  if (isCurrentAdmin)
+                    _NotificationBellButton(
+                      pendingCount: pendingCountAsync.value ?? 0,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => JoinRequestsScreen(
+                              circleId: widget.circleId,
+                              adminUserId: widget.currentUserId,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
@@ -515,39 +555,10 @@ class _DashboardHomeContentState extends ConsumerState<_DashboardHomeContent> {
             height: 80,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: patients.length + 1,
+              itemCount: patients.length, // Multi-pasien (Add button) ditunda untuk Tahap 3
               separatorBuilder: (_, __) => const SizedBox(width: 16),
               itemBuilder: (context, index) {
-                if (index == patients.length) {
-                  // Button: + Add Patient
-                  return GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => AddPatientScreen(circleId: widget.circleId)),
-                      );
-                    },
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFCBD5E1), style: BorderStyle.solid, width: 1.5),
-                          ),
-                          child: const Icon(Icons.add_rounded, color: Color(0xFF64748B), size: 24),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Add',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
+                // Catatan: Tombol "+ Add" disembunyikan sementara untuk fokus 1 pasien (MVP Tahap 1)
                 final p = patients[index];
                 final isSelected = p.patientId == selectedPatient.patientId;
 
@@ -985,6 +996,9 @@ class _DashboardFamilyContent extends ConsumerWidget {
     final theme = Theme.of(context);
     const primaryBlue = Color(0xFF0F4C81);
 
+    final members = membersAsync.value ?? [];
+    final isCurrentAdmin = members.any((m) => m.userId == currentUserId && m.isAdmin);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
@@ -1024,20 +1038,21 @@ class _DashboardFamilyContent extends ConsumerWidget {
                     ),
                   ),
                   const Spacer(),
-                  _NotificationBellButton(
-                    pendingCount: pendingCountAsync.value ?? 0,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => JoinRequestsScreen(
-                            circleId: circleId,
-                            adminUserId: currentUserId,
+                  if (isCurrentAdmin)
+                    _NotificationBellButton(
+                      pendingCount: pendingCountAsync.value ?? 0,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => JoinRequestsScreen(
+                              circleId: circleId,
+                              adminUserId: currentUserId,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
@@ -1071,38 +1086,39 @@ class _DashboardFamilyContent extends ConsumerWidget {
 
                       const SizedBox(height: 20),
 
-                      // Outlined Action Button: + Invite New Member
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => InviteScreen(circleId: circleId),
+                      // Outlined Action Button: + Invite New Member (Khusus Admin)
+                      if (isCurrentAdmin) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => InviteScreen(circleId: circleId),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.add_rounded, size: 22),
+                            label: const Text(
+                              'Invite New Member',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
                               ),
-                            );
-                          },
-                          icon: const Icon(Icons.add_rounded, size: 22),
-                          label: const Text(
-                            'Invite New Member',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
                             ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: primaryBlue,
-                            side: const BorderSide(color: primaryBlue, width: 1.5),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primaryBlue,
+                              side: const BorderSide(color: primaryBlue, width: 1.5),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-
-                      const SizedBox(height: 20),
+                        const SizedBox(height: 20),
+                      ],
 
                       // Members List Cards
                       membersAsync.when(
@@ -1114,8 +1130,8 @@ class _DashboardFamilyContent extends ConsumerWidget {
                           padding: const EdgeInsets.all(16),
                           child: Text('Gagal memuat anggota: $e'),
                         ),
-                        data: (members) {
-                          if (members.isEmpty) {
+                        data: (membersList) {
+                          if (membersList.isEmpty) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 24),
                               child: Center(
@@ -1128,12 +1144,16 @@ class _DashboardFamilyContent extends ConsumerWidget {
                           }
 
                           return Column(
-                            children: members.map((member) {
+                            children: membersList.map((member) {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: _FamilyMemberCard(
                                   member: member,
                                   isSelf: member.userId == currentUserId,
+                                  canRemove: isCurrentAdmin && member.userId != currentUserId,
+                                  onEditRole: isCurrentAdmin && !member.isAdmin
+                                      ? () => _handleEditRole(context, ref, circleId, member)
+                                      : null,
                                   onRemove: () => _handleRemoveMember(
                                     context,
                                     ref,
@@ -1165,6 +1185,87 @@ class _DashboardFamilyContent extends ConsumerWidget {
       bottomNavigationBar: _CustomBottomNavBar(
         selectedIndex: selectedIndex,
         onTabSelected: onTabSelected,
+      ),
+    );
+  }
+
+  void _handleEditRole(
+    BuildContext context,
+    WidgetRef ref,
+    String circleId,
+    FamilyMemberDisplay member,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Ubah Peran ${member.displayName}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('Anggota Input', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Bisa mencatat & menambah obat'),
+              leading: Icon(
+                Icons.edit_note_rounded,
+                color: member.caregiverRole == CaregiverRole.editor ? const Color(0xFF0F4C81) : Colors.grey,
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  final actions = ref.read(circleManagementActionsProvider.notifier);
+                  await actions.updateCaregiverRole(
+                    circleId: circleId,
+                    userId: member.userId,
+                    role: CaregiverRole.editor,
+                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Peran ${member.displayName} berhasil diubah menjadi Anggota Input.')),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Gagal mengubah peran: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+            const Divider(),
+            ListTile(
+              title: const Text('View Only', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Hanya dapat melihat jadwal'),
+              leading: Icon(
+                Icons.visibility_outlined,
+                color: member.caregiverRole == CaregiverRole.viewer ? const Color(0xFF0F4C81) : Colors.grey,
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  final actions = ref.read(circleManagementActionsProvider.notifier);
+                  await actions.updateCaregiverRole(
+                    circleId: circleId,
+                    userId: member.userId,
+                    role: CaregiverRole.viewer,
+                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Peran ${member.displayName} berhasil diubah menjadi View Only.')),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Gagal mengubah peran: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1221,11 +1322,15 @@ class _FamilyMemberCard extends StatelessWidget {
   const _FamilyMemberCard({
     required this.member,
     required this.isSelf,
+    required this.canRemove,
+    this.onEditRole,
     required this.onRemove,
   });
 
   final FamilyMemberDisplay member;
   final bool isSelf;
+  final bool canRemove;
+  final VoidCallback? onEditRole;
   final VoidCallback onRemove;
 
   @override
@@ -1299,12 +1404,24 @@ class _FamilyMemberCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                _RoleBadgePill(roleLabel: roleLabel, isAdmin: isAdmin),
+                GestureDetector(
+                  onTap: onEditRole,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _RoleBadgePill(roleLabel: roleLabel, isAdmin: isAdmin),
+                      if (onEditRole != null) ...[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.edit_outlined, size: 14, color: Color(0xFF64748B)),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
 
-          if (!isSelf)
+          if (canRemove)
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFF94A3B8)),
               onPressed: onRemove,
@@ -1528,6 +1645,8 @@ class __DashboardScheduleContentState
   Widget build(BuildContext context) {
     final patientsAsync = ref.watch(watchActivePatientsInCircleProvider(widget.circleId));
     final pendingCountAsync = ref.watch(watchPendingJoinRequestCountProvider(widget.circleId));
+    final membersAsync = ref.watch(watchFamilyMembersProvider(widget.circleId));
+    final isCurrentAdmin = membersAsync.value?.any((m) => m.userId == widget.currentUserId && m.isAdmin) ?? false;
 
     return Scaffold(
       backgroundColor: bgSlate,
@@ -1564,20 +1683,21 @@ class __DashboardScheduleContentState
                         ),
                   ),
                   const Spacer(),
-                  _NotificationBellButton(
-                    pendingCount: pendingCountAsync.value ?? 0,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => JoinRequestsScreen(
-                            circleId: widget.circleId,
-                            adminUserId: widget.currentUserId,
+                  if (isCurrentAdmin)
+                    _NotificationBellButton(
+                      pendingCount: pendingCountAsync.value ?? 0,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => JoinRequestsScreen(
+                              circleId: widget.circleId,
+                              adminUserId: widget.currentUserId,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
